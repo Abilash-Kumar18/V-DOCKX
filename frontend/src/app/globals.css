@@ -1,22 +1,22 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0c0e11;
-  --foreground: #f0f2f5;
-  --surface-card: #13161b;
-  --surface-card-hover: #181c22;
-  --surface-input: #16191f;
-  --border-subtle: #222730;
-  --border-focus: #cde655;
-  --accent-primary: #cde655;
-  --accent-primary-hover: #b8d442;
-  --accent-text: #0e1208;
-  --text-primary: #ffffff;
-  --text-secondary: #9aa3af;
-  --text-muted: #647080;
-  --status-ok: #4ade80;
-  --status-warn: #fbbf24;
-  --status-alert: #f87171;
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --surface-card: #ffffff;
+  --surface-card-hover: #f8fafc;
+  --surface-input: #f8fafc;
+  --border-subtle: #e2e8f0;
+  --border-focus: #2563eb;
+  --accent-primary: #2563eb;
+  --accent-primary-hover: #1d4ed8;
+  --accent-text: #ffffff;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --status-ok: #16a34a;
+  --status-warn: #d97706;
+  --status-alert: #dc2626;
 }
 
 @theme inline {
@@ -41,18 +41,18 @@ body {
   overflow-x: hidden;
 }
 
-/* Subtle dot-matrix pattern like in reference image top header */
-.bg-dot-matrix {
-  background-image: radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px);
-  background-size: 14px 14px;
-}
-
-.bg-dot-matrix-green {
-  background-image: radial-gradient(rgba(180, 205, 80, 0.08) 1.2px, transparent 1.2px);
+/* Subtle dot-matrix pattern for light mode */
+.bg-dot-matrix-light {
+  background-image: radial-gradient(rgba(15, 23, 42, 0.07) 1px, transparent 1px);
   background-size: 16px 16px;
 }
 
-/* Matte pill button */
+.bg-dot-matrix-blue {
+  background-image: radial-gradient(rgba(37, 99, 235, 0.08) 1.2px, transparent 1.2px);
+  background-size: 16px 16px;
+}
+
+/* Primary Pill Button */
 .btn-primary {
   background-color: var(--accent-primary);
   color: var(--accent-text);
@@ -63,10 +63,12 @@ body {
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  box-shadow: 0 4px 14px -2px rgba(37, 99, 235, 0.25);
 }
 
 .btn-primary:hover {
   background-color: var(--accent-primary-hover);
+  box-shadow: 0 6px 20px -2px rgba(37, 99, 235, 0.35);
   transform: translateY(-1px);
 }
 
@@ -74,43 +76,44 @@ body {
   transform: translateY(0);
 }
 
-/* Custom dark inputs */
-.input-dark {
-  background-color: var(--surface-input);
-  border: 1px solid var(--border-subtle);
-  color: var(--text-primary);
+/* Clean light inputs */
+.input-light {
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #0f172a;
   border-radius: 14px;
   padding: 12px 16px;
   font-size: 14px;
   outline: none;
-  transition: border-color 0.2s ease, background-color 0.2s ease;
+  transition: all 0.2s ease;
   width: 100%;
 }
 
-.input-dark:focus {
-  border-color: var(--border-focus);
-  background-color: #191d24;
+.input-light:focus {
+  background-color: #ffffff;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
-.input-dark::placeholder {
-  color: var(--text-muted);
+.input-light::placeholder {
+  color: #94a3b8;
 }
 
-/* Sleek scrollbar */
+/* Scrollbar for light mode */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0c0e11;
+  background: #f1f5f9;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #252b34;
+  background: #cbd5e1;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #333a46;
+  background: #94a3b8;
 }

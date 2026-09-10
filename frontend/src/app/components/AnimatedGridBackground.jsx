@@ -29,36 +29,43 @@ export default function AnimatedGridBackground() {
     window.addEventListener("mousemove", handleMouseMove);
 
     // Grid configuration
-    const gridSize = 48; // Size of each grid cell
-    const pulses = []; // Light pulses travelling along grid lines
+    const gridSize = 50; // Clean, calm grid cell size
+    const pulses = [];
 
-    // Initialize random light pulses
-    for (let i = 0; i < 18; i++) {
+    // Calm color palette matching Member 3 perception motifs:
+    // Cyan (Line Centroid), Ocean Blue (Trajectory), and Soft Emerald (Clear Corridor)
+    const calmColors = [
+      { start: "rgba(6, 182, 212, 0)", mid: "rgba(6, 182, 212, 0.5)", end: "rgba(14, 165, 233, 0.85)" }, // Calm Cyan
+      { start: "rgba(37, 99, 235, 0)", mid: "rgba(37, 99, 235, 0.45)", end: "rgba(99, 102, 241, 0.8)" },  // Serene Blue/Indigo
+      { start: "rgba(16, 185, 129, 0)", mid: "rgba(16, 185, 129, 0.4)", end: "rgba(20, 184, 166, 0.75)" }, // Soft Corridor Teal
+    ];
+
+    // Initialize random light pulses along grid lines
+    for (let i = 0; i < 16; i++) {
       pulses.push({
         isVertical: Math.random() > 0.5,
         coord: Math.floor(Math.random() * (Math.random() > 0.5 ? width : height) / gridSize) * gridSize,
         pos: Math.random() * (Math.random() > 0.5 ? height : width),
-        speed: 1.2 + Math.random() * 2.2,
-        length: 60 + Math.random() * 80,
-        opacity: 0.25 + Math.random() * 0.45,
+        speed: 0.9 + Math.random() * 1.5, // Calm, smooth gliding speed
+        length: 70 + Math.random() * 90,
+        palette: calmColors[i % calmColors.length],
       });
     }
 
-    let scanY = 0;
     let time = 0;
 
     const render = () => {
-      time += 0.015;
+      time += 0.012;
 
       // Mouse smoothing
-      mouseRef.current.x += (mouseRef.current.targetX - mouseRef.current.x) * 0.1;
-      mouseRef.current.y += (mouseRef.current.targetY - mouseRef.current.y) * 0.1;
+      mouseRef.current.x += (mouseRef.current.targetX - mouseRef.current.x) * 0.08;
+      mouseRef.current.y += (mouseRef.current.targetY - mouseRef.current.y) * 0.08;
 
-      // Deep obsidian dark background
-      ctx.fillStyle = "#080a0d";
+      // 1. Crisp, pure white-porcelain background
+      ctx.fillStyle = "#f8fafc";
       ctx.fillRect(0, 0, width, height);
 
-      // 1. Subtle radial ambient gradient centered on mouse
+      // 2. Soft, calm radial ambient illumination near mouse
       if (mouseRef.current.x > 0) {
         const mouseGrad = ctx.createRadialGradient(
           mouseRef.current.x,
@@ -66,17 +73,18 @@ export default function AnimatedGridBackground() {
           0,
           mouseRef.current.x,
           mouseRef.current.y,
-          360
+          280
         );
-        mouseGrad.addColorStop(0, "rgba(180, 215, 80, 0.06)");
-        mouseGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
+        mouseGrad.addColorStop(0, "rgba(6, 182, 212, 0.06)");
+        mouseGrad.addColorStop(0.5, "rgba(37, 99, 235, 0.03)");
+        mouseGrad.addColorStop(1, "rgba(248, 250, 252, 0)");
         ctx.fillStyle = mouseGrad;
         ctx.fillRect(0, 0, width, height);
       }
 
-      // 2. Base Grid Lines
+      // 3. Subtle Silver/Slate Grid Lines
       ctx.lineWidth = 1;
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.035)";
+      ctx.strokeStyle = "rgba(148, 163, 184, 0.16)"; // delicate slate-200 line
 
       // Vertical lines
       for (let x = 0; x <= width; x += gridSize) {
@@ -94,27 +102,24 @@ export default function AnimatedGridBackground() {
         ctx.stroke();
       }
 
-      // 3. Grid Intersections (Crosshairs / Points)
+      // 4. Subtle Intersecting Crosshairs
       const crossSize = 3;
       for (let x = 0; x <= width; x += gridSize * 2) {
         for (let y = 0; y <= height; y += gridSize * 2) {
-          // Distance to mouse
           const dx = x - mouseRef.current.x;
           const dy = y - mouseRef.current.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
 
-          let pointAlpha = 0.12;
-          let pointColor = "rgba(255, 255, 255, ";
+          let pointAlpha = 0.2;
+          let pointColor = "rgba(148, 163, 184, ";
 
-          // Light up near mouse
-          if (dist < 200) {
-            pointAlpha = 0.5 * (1 - dist / 200);
-            pointColor = "rgba(195, 230, 85, ";
+          if (dist < 180) {
+            pointAlpha = 0.7 * (1 - dist / 180);
+            pointColor = "rgba(6, 182, 212, ";
           }
 
-          // Gentle breathing pulse
           const breath = Math.sin(time * 2 + (x + y) * 0.01) * 0.05;
-          ctx.strokeStyle = `${pointColor}${Math.max(0.04, pointAlpha + breath)})`;
+          ctx.strokeStyle = `${pointColor}${Math.max(0.08, pointAlpha + breath)})`;
           ctx.beginPath();
           ctx.moveTo(x - crossSize, y);
           ctx.lineTo(x + crossSize, y);
@@ -124,7 +129,7 @@ export default function AnimatedGridBackground() {
         }
       }
 
-      // 4. Moving Pulse Beams Travelling along Grid Lines
+      // 5. Calm Moving Line Pulses (Cyan, Ocean Blue & Soft Teal)
       pulses.forEach((pulse) => {
         pulse.pos += pulse.speed;
 
@@ -141,12 +146,12 @@ export default function AnimatedGridBackground() {
           ? ctx.createLinearGradient(0, pulse.pos - pulse.length, 0, pulse.pos)
           : ctx.createLinearGradient(pulse.pos - pulse.length, 0, pulse.pos, 0);
 
-        grad.addColorStop(0, "rgba(195, 230, 85, 0)");
-        grad.addColorStop(0.7, `rgba(195, 230, 85, ${pulse.opacity})`);
-        grad.addColorStop(1, "rgba(225, 250, 120, 0.8)");
+        grad.addColorStop(0, pulse.palette.start);
+        grad.addColorStop(0.6, pulse.palette.mid);
+        grad.addColorStop(1, pulse.palette.end);
 
         ctx.strokeStyle = grad;
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 1.8;
         ctx.beginPath();
 
         if (pulse.isVertical) {
@@ -159,27 +164,18 @@ export default function AnimatedGridBackground() {
         ctx.stroke();
       });
 
-      // 5. Subtle Sweeping Laser Scanline
-      scanY = (scanY + 0.8) % (height + 200);
-      const scanGrad = ctx.createLinearGradient(0, scanY - 80, 0, scanY);
-      scanGrad.addColorStop(0, "rgba(180, 220, 80, 0)");
-      scanGrad.addColorStop(0.5, "rgba(180, 220, 80, 0.03)");
-      scanGrad.addColorStop(1, "rgba(195, 230, 85, 0.08)");
-      ctx.fillStyle = scanGrad;
-      ctx.fillRect(0, scanY - 80, width, 80);
-
-      // 6. Central Vignette to keep card focus crisp
+      // 6. Central Soft Glow Behind Card
       const centerGrad = ctx.createRadialGradient(
         width / 2,
         height / 2,
-        180,
+        100,
         width / 2,
         height / 2,
-        Math.max(width, height) * 0.75
+        Math.max(width, height) * 0.6
       );
-      centerGrad.addColorStop(0, "rgba(8, 10, 13, 0.72)");
-      centerGrad.addColorStop(0.5, "rgba(8, 10, 13, 0.4)");
-      centerGrad.addColorStop(1, "rgba(8, 10, 13, 0.88)");
+      centerGrad.addColorStop(0, "rgba(255, 255, 255, 0.95)");
+      centerGrad.addColorStop(0.5, "rgba(248, 250, 252, 0.7)");
+      centerGrad.addColorStop(1, "rgba(241, 245, 249, 0.9)");
       ctx.fillStyle = centerGrad;
       ctx.fillRect(0, 0, width, height);
 
@@ -198,7 +194,7 @@ export default function AnimatedGridBackground() {
   return (
     <canvas
       ref={canvasRef}
-      className="fixed inset-0 pointer-events-none z-0"
+      className="fixed inset-0 pointer-events-none z-0 bg-[#f8fafc]"
       style={{ width: "100vw", height: "100vh" }}
     />
   );
