@@ -68,10 +68,10 @@ class HybridDockingStateMachine:
         self.last_perception: Optional[PerceptionOutput] = None
         self.last_command: ControlCommand = ControlCommand()
 
-    def start_mission(self) -> None:
+    def start_mission(self, start_time: Optional[float] = None) -> None:
         """Trigger start of autonomous docking mission."""
         self.state = DockingState.LINE_SEARCH
-        self.start_time = time.time()
+        self.start_time = start_time if start_time is not None else time.time()
         self.state_enter_time = self.start_time
         self.retry_count = 0
         self.failure_reason = ""
@@ -105,7 +105,7 @@ class HybridDockingStateMachine:
         Execute one FSM cycle and return the updated (State, Safe ControlCommand).
         """
         now = current_time if current_time is not None else time.time()
-        if self.start_time == 0.0:
+        if self.start_time == 0.0 or (current_time is not None and self.start_time > 1e8 and current_time < 1e6):
             self.start_time = now
 
         if target is not None:
@@ -293,12 +293,14 @@ class HybridDockingStateMachine:
             current_time=now,
         )
 
+        self.last_update_time = now
         self.last_command = safe_cmd
         return self.state, safe_cmd
 
-    def get_result(self) -> DockingResult:
+    def get_result(self, current_time: Optional[float] = None) -> DockingResult:
         """Return final mission performance summary."""
-        duration = round(time.time() - self.start_time, 2) if self.start_time > 0 else 0.0
+        now = current_time if current_time is not None else (self.last_update_time if hasattr(self, 'last_update_time') else time.time())
+        duration = round(now - self.start_time, 2) if self.start_time > 0 else 0.0
         final_dist = self.last_perception.distance_m if self.last_perception else 0.0
         final_lat = self.last_perception.lateral_offset_m if self.last_perception else 0.0
         final_head = self.last_perception.heading_error_rad if self.last_perception else 0.0
