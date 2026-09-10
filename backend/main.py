@@ -4,6 +4,7 @@ REST endpoints for mission control and high-frequency WebSocket telemetry stream
 """
 
 import asyncio
+import glob
 import json
 import math
 import os
@@ -184,7 +185,7 @@ def emergency_stop():
 @app.post("/api/reset")
 def reset_system():
     safety.release_estop()
-    fsm.state = DockingState.IDLE
+    fsm.reset()
     robot.reset(x=0.0, y=0.15, theta=-0.10)
     return {"message": "System reset to initial state", "state": fsm.state.value}
 
@@ -192,6 +193,51 @@ def reset_system():
 @app.get("/api/config")
 def get_config():
     return load_config()
+
+
+@app.get("/api/analytics")
+def get_analytics():
+    """Returns aggregated evaluation metrics across all runs in results/."""
+    try:
+        from scripts.evaluate_hybrid_runs import evaluate_logs
+        summary = evaluate_logs("results")
+        return summary
+    except Exception as e:
+        return {"error": str(e), "total_runs": 0}
+
+
+@app.get("/api/runs")
+def get_runs():
+    """Returns the most recent docking runs from results/."""
+    runs = []
+    log_files = glob.glob(os.path.join("results", "*.jsonl"))
+    for file_path in sorted(log_files, key=os.path.getmtime, reverse=True)[:15]:
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                lines = [line.strip() for line in f if line.strip()]
+                if not lines:
+                    continue
+                first = json.loads(lines[0])
+                last = json.loads(lines[-1])
+                duration = round(max(0.0, last.get("timestamp", 0) - first.get("timestamp", 0)), 2)
+                lat_err_cm = round(abs(last.get("lateral_offset_m", 0.0)) * 100, 2)
+                head_err_deg = round(abs(math.degrees(last.get("heading_error_rad", 0.0))), 2)
+                state = last.get("state", "UNKNOWN")
+                success = (state in ("DOCKED", "VISUALLY_ALIGNED") or (lat_err_cm <= 3.0 and head_err_deg <= 5.0))
+                runs.append({
+                    "run_id": os.path.basename(file_path).replace(".jsonl", ""),
+                    "timestamp": last.get("timestamp", 0),
+                    "duration_s": duration,
+                    "final_state": state,
+                    "success": success,
+                    "lateral_error_cm": lat_err_cm,
+                    "heading_error_deg": head_err_deg,
+                    "distance_cm": round(last.get("distance_m", 0.12) * 100, 1),
+                    "file_name": os.path.basename(file_path),
+                })
+        except Exception:
+            continue
+    return runs
 
 
 class ObstacleInjectRequest(BaseModel):
@@ -242,15 +288,15 @@ async def simulation_loop():
         ):
             synthetic_target.detected = True
             synthetic_target.distance_m = round(dist, 4)
-            synthetic_target.lateral_offset_m = round(dy, 4)
-            synthetic_target.heading_error_rad = round(heading_err, 4)
+            synthetic_target.lateral_offset_m = round(robot.y, 4)
+            synthetic_target.heading_error_rad = round(robot.theta, 4)
             synthetic_target.confidence = 0.90
             synthetic_target.timestamp = now
         else:
             synthetic_target.detected = False
             synthetic_target.distance_m = round(dist, 4)
-            synthetic_target.lateral_offset_m = round(dy, 4)
-            synthetic_target.heading_error_rad = round(heading_err, 4)
+            synthetic_target.lateral_offset_m = round(robot.y, 4)
+            synthetic_target.heading_error_rad = round(robot.theta, 4)
             synthetic_target.timestamp = now
 
         # Execute FSM cycle

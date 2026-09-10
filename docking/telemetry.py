@@ -35,10 +35,11 @@ class TelemetryLogger:
         corridor_blocked: bool = False,
         confidence: float = 0.0,
         reason: str = "",
+        timestamp: Optional[float] = None,
         extra: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Record one timestamped telemetry entry."""
-        now = time.time()
+        now = timestamp if timestamp is not None else time.time()
         entry = {
             "timestamp": now,
             "run_id": self.run_id,

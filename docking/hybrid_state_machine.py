@@ -73,10 +73,28 @@ class HybridDockingStateMachine:
         self.state = DockingState.LINE_SEARCH
         self.start_time = start_time if start_time is not None else time.time()
         self.state_enter_time = self.start_time
+        self.dwell_start_time = None
         self.retry_count = 0
         self.failure_reason = ""
         self.consecutive_line_frames = 0
         self.consecutive_target_frames = 0
+        self.missing_target_frames = 0
+        self.missing_line_frames = 0
+
+    def reset(self) -> None:
+        """Reset state machine back to IDLE with all counters and timers cleared."""
+        self.state = DockingState.IDLE
+        self.previous_state = DockingState.IDLE
+        self.state_enter_time = time.time()
+        self.start_time = 0.0
+        self.dwell_start_time = None
+        self.retry_count = 0
+        self.failure_reason = ""
+        self.consecutive_line_frames = 0
+        self.consecutive_target_frames = 0
+        self.missing_target_frames = 0
+        self.missing_line_frames = 0
+        self.last_perception = None
 
     def abort_mission(self, reason: str = "MISSION_ABORTED_BY_OPERATOR") -> None:
         """Abort active mission."""
