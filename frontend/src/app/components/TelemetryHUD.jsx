@@ -30,6 +30,8 @@ export default function TelemetryHUD({ user, onLogout }) {
   const [isEmergencyStopped, setIsEmergencyStopped] = useState(false);
   const [isSimulatingObstacle, setIsSimulatingObstacle] = useState(false);
   const [isDockingActive, setIsDockingActive] = useState(true);
+  const [isConnectedToBackend, setIsConnectedToBackend] = useState(false);
+  const [robotPose, setRobotPose] = useState({ x: 0.0, y: 0.0, theta_deg: 0.0 });
 
   // Telemetry Metrics
   const [distanceM, setDistanceM] = useState(0.245);
@@ -53,6 +55,99 @@ export default function TelemetryHUD({ user, onLogout }) {
   const canvasRef = useRef(null);
   const animFrameRef = useRef(null);
   const tickRef = useRef(0);
+
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws/telemetry";
+
+  // 1. Live WebSocket Telemetry Connection to FastAPI Backend
+  useEffect(() => {
+    let ws = null;
+    let reconnectTimeout = null;
+    let isSubscribed = true;
+
+    const connectWebSocket = () => {
+      try {
+        ws = new WebSocket(WS_URL);
+
+        ws.onopen = () => {
+          if (!isSubscribed) return;
+          setIsConnectedToBackend(true);
+          setLogs((prev) => [
+            {
+              ts: new Date().toISOString().split("T")[1].slice(0, 12),
+              state: "SYSTEM",
+              msg: "Connected to V-DOCKX FastAPI backend telemetry stream (20 Hz).",
+            },
+            ...prev.slice(0, 20),
+          ]);
+        };
+
+        ws.onmessage = (evt) => {
+          if (!isSubscribed) return;
+          try {
+            const data = JSON.parse(evt.data);
+            if (data.state) setFsmState(data.state);
+            if (data.linear_velocity_mps !== undefined) setLinearVelMps(data.linear_velocity_mps);
+            if (data.angular_velocity_rps !== undefined) setAngularVelRps(data.angular_velocity_rps);
+            if (data.estop_active !== undefined) setIsEmergencyStopped(data.estop_active);
+            if (data.obstacle && data.obstacle.corridor_blocked !== undefined) {
+              setIsSimulatingObstacle(data.obstacle.corridor_blocked);
+            }
+            if (data.robot_pose) {
+              setRobotPose(data.robot_pose);
+            }
+            if (data.target && data.target.detected) {
+              setDistanceM(data.target.distance_m);
+              setLateralOffsetM(data.target.lateral_offset_m);
+              setHeadingErrorDeg(Number((data.target.heading_error_rad * (180 / Math.PI)).toFixed(1)));
+            }
+            if (data.dwell_progress_pct !== undefined) {
+              setDwellTimeSec(Number(((data.dwell_progress_pct / 100) * 0.8).toFixed(2)));
+            }
+            if (data.command_reason) {
+              // Log notable transitions
+              if (Math.random() > 0.92) {
+                setLogs((prev) => [
+                  {
+                    ts: new Date().toISOString().split("T")[1].slice(0, 12),
+                    state: data.state,
+                    msg: `Backend cmd: ${data.command_reason} (v=${data.linear_velocity_mps.toFixed(2)}m/s, w=${data.angular_velocity_rps.toFixed(2)}r/s)`,
+                  },
+                  ...prev.slice(0, 20),
+                ]);
+              }
+            }
+          } catch (e) {
+            console.error("Telemetry parse error:", e);
+          }
+        };
+
+        ws.onerror = () => {
+          if (isSubscribed) setIsConnectedToBackend(false);
+        };
+
+        ws.onclose = () => {
+          if (isSubscribed) {
+            setIsConnectedToBackend(false);
+            reconnectTimeout = setTimeout(connectWebSocket, 2500);
+          }
+        };
+      } catch (err) {
+        if (isSubscribed) {
+          setIsConnectedToBackend(false);
+          reconnectTimeout = setTimeout(connectWebSocket, 2500);
+        }
+      }
+    };
+
+    connectWebSocket();
+
+    return () => {
+      isSubscribed = false;
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (ws) ws.close();
+    };
+  }, [WS_URL]);
 
   // Simulation & HUD Render Loop
   useEffect(() => {
@@ -260,8 +355,9 @@ export default function TelemetryHUD({ user, onLogout }) {
     };
   }, [lateralOffsetM, distanceM, isSimulatingObstacle, isEmergencyStopped, latencyMs]);
 
-  // Live dynamic telemetry simulation updates
+  // Fallback client-side simulation when backend is disconnected
   useEffect(() => {
+    if (isConnectedToBackend) return;
     if (!isDockingActive || isEmergencyStopped || isSimulatingObstacle) return;
 
     const interval = setInterval(() => {
@@ -298,7 +394,7 @@ export default function TelemetryHUD({ user, onLogout }) {
           {
             ts: now,
             state: fsmState,
-            msg: `Telemetry tick: d=${distanceM.toFixed(3)}m, e_y=${(lateralOffsetM * 100).toFixed(1)}cm`,
+            msg: `Local sim tick: d=${distanceM.toFixed(3)}m, e_y=${(lateralOffsetM * 100).toFixed(1)}cm`,
           },
           ...prev.slice(0, 15),
         ]);
@@ -306,43 +402,81 @@ export default function TelemetryHUD({ user, onLogout }) {
     }, 200);
 
     return () => clearInterval(interval);
-  }, [isDockingActive, isEmergencyStopped, isSimulatingObstacle, distanceM, lateralOffsetM, fsmState]);
+  }, [isConnectedToBackend, isDockingActive, isEmergencyStopped, isSimulatingObstacle, distanceM, lateralOffsetM, fsmState]);
 
-  // Emergency Stop Handler
-  const handleToggleEStop = () => {
+  // Start Mission Handler (REST API + Local Fallback)
+  const handleStartMission = async () => {
+    try {
+      await fetch(`${API_BASE}/api/start`, { method: "POST" });
+    } catch (e) {
+      console.warn("Backend unavailable, starting local simulation");
+    }
+    setIsDockingActive(true);
+    setIsEmergencyStopped(false);
+    setLogs((prev) => [
+      {
+        ts: new Date().toISOString().split("T")[1].slice(0, 12),
+        state: "LINE_SEARCH",
+        msg: "Mission started: Autonomous docking sequence initiated",
+      },
+      ...prev.slice(0, 20),
+    ]);
+  };
+
+  // Emergency Stop Handler (REST API + Local Fallback)
+  const handleToggleEStop = async () => {
     if (!isEmergencyStopped) {
       setIsEmergencyStopped(true);
       setFsmState("OBSTACLE_STOP");
       setLinearVelMps(0.0);
       setAngularVelRps(0.0);
+      try {
+        await fetch(`${API_BASE}/api/stop`, { method: "POST" });
+      } catch (e) {
+        console.warn("Backend unavailable for E-STOP");
+      }
       setLogs((prev) => [
         {
           ts: new Date().toISOString().split("T")[1].slice(0, 12),
           state: "OBSTACLE_STOP",
           msg: "EMERGENCY STOP (E-STOP) COMMANDED - ZERO VELOCITY LATCHED",
         },
-        ...prev,
+        ...prev.slice(0, 20),
       ]);
     } else {
       setIsEmergencyStopped(false);
       setFsmState("FINE_ALIGN");
       setLinearVelMps(0.08);
       setAngularVelRps(-0.12);
+      try {
+        await fetch(`${API_BASE}/api/start`, { method: "POST" });
+      } catch (e) {
+        console.warn("Backend unavailable for resuming E-STOP");
+      }
       setLogs((prev) => [
         {
           ts: new Date().toISOString().split("T")[1].slice(0, 12),
           state: "FINE_ALIGN",
           msg: "E-STOP Cleared. Resuming closed-loop autonomous docking.",
         },
-        ...prev,
+        ...prev.slice(0, 20),
       ]);
     }
   };
 
-  // Obstacle Intrusion Toggle Handler
-  const handleToggleObstacle = () => {
+  // Obstacle Intrusion Toggle Handler (REST API + Local Fallback)
+  const handleToggleObstacle = async () => {
     const next = !isSimulatingObstacle;
     setIsSimulatingObstacle(next);
+    try {
+      await fetch(`${API_BASE}/api/obstacle/inject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ corridor_blocked: next }),
+      });
+    } catch (e) {
+      console.warn("Backend unavailable for obstacle injection");
+    }
     if (next) {
       setFsmState("OBSTACLE_STOP");
       setLinearVelMps(0.0);
@@ -352,7 +486,7 @@ export default function TelemetryHUD({ user, onLogout }) {
           state: "OBSTACLE_STOP",
           msg: "Safety Corridor blocked by dynamic object [Box 91%]. Motion stopped.",
         },
-        ...prev,
+        ...prev.slice(0, 20),
       ]);
     } else {
       setFsmState("FINE_ALIGN");
@@ -363,7 +497,7 @@ export default function TelemetryHUD({ user, onLogout }) {
           state: "FINE_ALIGN",
           msg: "Corridor cleared. 1.0s dwell passed, resuming trajectory.",
         },
-        ...prev,
+        ...prev.slice(0, 20),
       ]);
     }
   };
@@ -392,8 +526,14 @@ export default function TelemetryHUD({ user, onLogout }) {
     URL.revokeObjectURL(url);
   };
 
-  // Reset Run
-  const handleResetRun = () => {
+  // Reset Run (REST API + Local Fallback)
+  const handleResetRun = async () => {
+    try {
+      await fetch(`${API_BASE}/api/reset`, { method: "POST" });
+      await fetch(`${API_BASE}/api/start`, { method: "POST" });
+    } catch (e) {
+      console.warn("Backend unavailable for reset");
+    }
     setDistanceM(0.85);
     setLateralOffsetM(0.028);
     setHeadingErrorDeg(-3.8);
@@ -438,6 +578,20 @@ export default function TelemetryHUD({ user, onLogout }) {
               >
                 {isEmergencyStopped ? "E-STOP LATCHED" : fsmState}
               </span>
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-semibold border ${
+                  isConnectedToBackend
+                    ? "bg-[#132616] border-[#25522b] text-[#4ade80]"
+                    : "bg-[#2b2512] border-[#544a1e] text-[#fbbf24]"
+                }`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    isConnectedToBackend ? "bg-[#4ade80] animate-pulse" : "bg-[#fbbf24]"
+                  }`}
+                />
+                {isConnectedToBackend ? "LIVE STREAM (20 Hz)" : "STANDALONE SIM"}
+              </span>
             </div>
             <p className="text-[11px] text-zinc-400">
               Closed-Loop Autonomous Robot Docking & Charging Cockpit
@@ -447,6 +601,15 @@ export default function TelemetryHUD({ user, onLogout }) {
 
         {/* Primary Controls */}
         <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Start Mission */}
+          <button
+            onClick={handleStartMission}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#1e2e17] border border-[#3b5722] text-[#cde655] hover:bg-[#2a401f] text-xs font-semibold transition-colors"
+          >
+            <Play className="w-3.5 h-3.5 fill-current" />
+            <span>Start Mission</span>
+          </button>
+
           {/* Obstacle Injection Toggle */}
           <button
             onClick={handleToggleObstacle}
