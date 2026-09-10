@@ -221,7 +221,17 @@ async def simulation_loop():
     while True:
         now = time.time()
 
+        # Dynamically update synthetic line tracking based on robot pose relative to guide line (y=0)
+        synthetic_line.centroid_error_norm = max(-1.0, min(1.0, round(robot.y / 0.15, 3)))
+        synthetic_line.angle_error_rad = max(-1.0, min(1.0, round(robot.theta, 3)))
+        synthetic_line.timestamp = now
+
         # Update synthetic target perception based on simulated robot pose
+        dx = 1.5 - robot.x
+        dy = -robot.y
+        dist = math.sqrt(dx * dx + dy * dy)
+        heading_err = -robot.theta
+
         if fsm.state in (
             DockingState.STATION_ZONE_APPROACH,
             DockingState.DOCKING_TARGET_ACQUIRE,
@@ -230,12 +240,6 @@ async def simulation_loop():
             DockingState.VERIFY,
             DockingState.DOCKED,
         ):
-            # Target is at x=1.5m, y=0.0m on charging plane
-            dx = 1.5 - robot.x
-            dy = -robot.y
-            dist = math.sqrt(dx * dx + dy * dy)
-            heading_err = -robot.theta
-
             synthetic_target.detected = True
             synthetic_target.distance_m = round(dist, 4)
             synthetic_target.lateral_offset_m = round(dy, 4)
@@ -244,6 +248,10 @@ async def simulation_loop():
             synthetic_target.timestamp = now
         else:
             synthetic_target.detected = False
+            synthetic_target.distance_m = round(dist, 4)
+            synthetic_target.lateral_offset_m = round(dy, 4)
+            synthetic_target.heading_error_rad = round(heading_err, 4)
+            synthetic_target.timestamp = now
 
         # Execute FSM cycle
         state, cmd = fsm.update(
@@ -261,15 +269,21 @@ async def simulation_loop():
 
         # Calculate verification dwell progress percentage
         dwell_pct = 0.0
+        dwell_countdown = 0.0
         if fsm.dwell_start_time is not None:
-            dwell_pct = min(100.0, round(((now - fsm.dwell_start_time) / fsm.verification_dwell_s) * 100.0, 1))
+            elapsed = now - fsm.dwell_start_time
+            dwell_pct = min(100.0, round((elapsed / fsm.verification_dwell_s) * 100.0, 1))
+            dwell_countdown = round(max(0.0, fsm.verification_dwell_s - elapsed), 2)
 
-        # Broadcast telemetry packet
+        # Broadcast rich telemetry packet (supports nested and direct schemas)
         telemetry_pkt = {
             "timestamp": now,
             "state": state.value,
+            "fsm_state": state.value,
             "linear_velocity_mps": cmd.linear_velocity_mps,
+            "v": cmd.linear_velocity_mps,
             "angular_velocity_rps": cmd.angular_velocity_rps,
+            "w": cmd.angular_velocity_rps,
             "command_reason": cmd.reason,
             "robot_pose": robot.get_telemetry_dict(),
             "target": {
@@ -278,12 +292,18 @@ async def simulation_loop():
                 "lateral_offset_m": synthetic_target.lateral_offset_m,
                 "heading_error_rad": synthetic_target.heading_error_rad,
             },
+            "ed": synthetic_target.distance_m,
+            "ey": synthetic_target.lateral_offset_m,
+            "etheta": synthetic_target.heading_error_rad,
             "obstacle": {
                 "corridor_blocked": synthetic_obstacle.corridor_blocked,
                 "stop_count": safety.obstacle_stop_count,
             },
+            "corridor_blocked": synthetic_obstacle.corridor_blocked,
             "dwell_progress_pct": dwell_pct,
+            "dwell_countdown": dwell_countdown,
             "estop_active": safety.estop_active,
+            "safety_halt": safety.estop_active or synthetic_obstacle.corridor_blocked,
         }
 
         await manager.broadcast(telemetry_pkt)
