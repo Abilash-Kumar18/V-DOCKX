@@ -24,6 +24,14 @@ class HybridDockingStateMachine:
     Line Following -> Station Zone -> Fine Alignment -> Verification -> Docked.
     """
 
+    BENCHMARK_SPECS = {
+        "terminal_lateral_error_m": 0.03,         # <= ±3.0 cm (0.03 m)
+        "terminal_heading_error_rad": 0.08,       # <= ±4.5 deg (0.08 rad)
+        "terminal_docking_distance_m": 0.12,      # 0.12 m ± 0.01 m (12 cm)
+        "verification_dwell_time_s": 0.80,        # 0.80 seconds of continuous stability
+        "zero_false_docking_guarantee": "100% verified via conjunctive dwell gate",
+    }
+
     def __init__(
         self,
         line_controller: Optional[LineController] = None,

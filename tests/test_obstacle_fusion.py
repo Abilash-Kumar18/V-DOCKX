@@ -5,8 +5,8 @@ footprint polygon intersection, and zero-crash offline execution.
 """
 
 import unittest
-import numpy as np
-import cv2
+import numpy as np  # type: ignore
+import cv2  # type: ignore
 
 from docking.contracts import ObstacleOutput
 from docking.free_space_detector import FreeSpaceDetector

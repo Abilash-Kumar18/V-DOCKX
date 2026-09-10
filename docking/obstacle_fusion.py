@@ -7,8 +7,8 @@ Produces unified ObstacleOutput strictly complying with frozen data contract.
 import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
-import cv2
-import numpy as np
+import cv2  # type: ignore
+import numpy as np  # type: ignore
 import yaml
 
 from docking.contracts import ObstacleOutput
@@ -149,7 +149,7 @@ class ObstacleFusionSupervisor:
         if confidences:
             fusion_conf = float(np.mean(confidences))
         elif geom_blocked:
-            fusion_conf = float(min(1.0, 0.5 + edge_density * 5.0))
+            fusion_conf = min(1.0, 0.5 + edge_density * 5.0)
         else:
             fusion_conf = 1.0  # High confidence that corridor is clear
 
