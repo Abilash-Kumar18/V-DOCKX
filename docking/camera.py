@@ -221,3 +221,28 @@ class CameraStream:
         if self.cap is not None:
             self.cap.release()
             self.cap = None
+
+
+def show_or_save_frame(
+    window_name: str,
+    frame: np.ndarray,
+    output_path: str = "results/preview.jpg",
+    delay_ms: int = 1,
+) -> bool:
+    """
+    Display frame using cv2.imshow if highgui is available;
+    otherwise saves preview to disk for headless environments.
+    Returns False if user pressed 'q' to quit, True otherwise.
+    """
+    if frame is None:
+        return True
+    try:
+        cv2.imshow(window_name, frame)
+        key = cv2.waitKey(delay_ms) & 0xFF
+        return key != ord("q")
+    except (cv2.error, Exception):
+        # Headless fallback: save current visual output to results/
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        cv2.imwrite(output_path, frame)
+        return True
+

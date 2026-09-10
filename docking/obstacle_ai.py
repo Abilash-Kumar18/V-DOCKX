@@ -66,16 +66,29 @@ class AIObstacleDetector:
         except Exception:
             pass
 
+    def _resolve_path(self, path: Optional[str]) -> Optional[str]:
+        if not path:
+            return None
+        if os.path.isabs(path):
+            return path
+        # Try relative to CWD
+        if os.path.exists(path):
+            return os.path.abspath(path)
+        # Try relative to repo root
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        candidate = os.path.join(repo_root, path)
+        if os.path.exists(candidate):
+            return candidate
+        return path
+
     def _init_network(self) -> None:
         """Attempt to load DNN weights; fallback smoothly to offline mode if missing."""
-        if (
-            self.prototxt_path
-            and self.weights_path
-            and os.path.exists(self.prototxt_path)
-            and os.path.exists(self.weights_path)
-        ):
+        proto = self._resolve_path(self.prototxt_path)
+        weights = self._resolve_path(self.weights_path)
+
+        if proto and weights and os.path.exists(proto) and os.path.exists(weights):
             try:
-                self.net = cv2.dnn.readNetFromCaffe(self.prototxt_path, self.weights_path)
+                self.net = cv2.dnn.readNetFromCaffe(proto, weights)
                 # Optimize for OpenCV CPU execution
                 self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
                 self.net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
@@ -85,6 +98,17 @@ class AIObstacleDetector:
                 self.offline_mode = True
         else:
             self.offline_mode = True
+
+    def get_model_status(self) -> Dict[str, Any]:
+        """Return diagnostic status of the loaded AI model."""
+        return {
+            "model_name": "MobileNet-SSD (Caffe Deep Neural Network)",
+            "framework": "OpenCV DNN (C++ optimized, zero external runtime)",
+            "weights_loaded": not self.offline_mode,
+            "confidence_threshold": self.confidence_threshold,
+            "monitored_classes": sorted(list(self.target_classes)),
+            "all_classes": self.VOC_CLASSES,
+        }
 
     def inject_simulation_detection(
         self,
