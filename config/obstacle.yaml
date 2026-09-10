@@ -1,0 +1,35 @@
+# V-DOCKX Obstacle & Safety Corridor Configuration (Member 1)
+
+corridor:
+  robot_width_m: 0.40
+  safety_margin_m: 0.15
+  lookahead_distance_m: 1.50
+  # Default trapezoidal ground polygon in 640x480 frame:
+  # Bottom base [left, right], Top far boundary [right, left]
+  polygon_points:
+    - [100, 480]
+    - [540, 480]
+    - [400, 240]
+    - [240, 240]
+  edge_density_threshold: 0.06
+  variance_threshold: 450.0
+  canny_threshold1: 50
+  canny_threshold2: 150
+
+ai_detector:
+  model_type: "mobilenet_ssd"
+  prototxt_path: "models/MobileNetSSD_deploy.prototxt"
+  weights_path: "models/MobileNetSSD_deploy.caffemodel"
+  confidence_threshold: 0.45
+  nms_threshold: 0.40
+  target_classes:
+    - "person"
+    - "bottle"
+    - "chair"
+    - "box"
+    - "dog"
+    - "cat"
+
+fusion:
+  stop_distance_m: 0.40
+  warning_distance_m: 0.80
