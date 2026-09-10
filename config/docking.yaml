@@ -1,0 +1,34 @@
+# V-DOCKX Docking Configuration
+
+control:
+  max_linear_velocity_mps: 0.20
+  max_angular_velocity_rps: 0.60
+  final_linear_velocity_mps: 0.05
+  min_linear_velocity_mps: 0.02
+  kp_distance: 0.45
+  kp_lateral: 1.20
+  kp_heading: 1.00
+  kp_line_centroid: 0.80
+  kp_line_angle: 0.60
+  beta_centroid_throttle: 0.70
+  beta_angle_throttle: 0.50
+  lateral_deadband_m: 0.005
+  heading_deadband_rad: 0.02
+
+thresholds:
+  min_confidence: 0.65
+  lateral_tolerance_m: 0.03
+  heading_tolerance_rad: 0.08
+  docking_distance_m: 0.12
+  approach_deceleration_distance_m: 0.35
+  obstacle_stop_distance_m: 0.35
+  target_loss_timeout_s: 0.40
+  verification_dwell_s: 0.80
+  clearance_dwell_s: 1.00
+  max_retries: 3
+  recovery_reverse_speed_mps: -0.05
+  recovery_reverse_duration_s: 1.00
+
+station:
+  target_station_id: 0
+  marker_size_m: 0.12
