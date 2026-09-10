@@ -211,11 +211,13 @@ class LineDetector:
             e_a = math.atan2(dx, dy)
         else:
             # Fallback to PCA / fitLine on primary contour points
-            [vx, vy, x0, y0] = cv2.fitLine(primary_cnt, cv2.DIST_L2, 0, 0.01, 0.01)
-            # vx, vy unit direction vector
+            line_params = cv2.fitLine(primary_cnt, cv2.DIST_L2, 0, 0.01, 0.01)
+            # cv2.fitLine returns shape (4, 1) or list of arrays; extract scalar items
+            vx = float(line_params[0].item() if hasattr(line_params[0], "item") else line_params[0])
+            vy = float(line_params[1].item() if hasattr(line_params[1], "item") else line_params[1])
             if vy < 0:
                 vx, vy = -vx, -vy
-            e_a = math.atan2(float(vx), float(vy))
+            e_a = math.atan2(vx, vy)
 
         e_a = float(np.clip(e_a, -math.pi / 2.0, math.pi / 2.0))
 
