@@ -1,25 +1,123 @@
-# Byte-compiled / optimized / DLL files
+# ==============================================================================
+# V-DOCKX .gitignore
+# Comprehensive ignore rules for Python, Node.js (Vite/React), Mobile, IDEs, and OS
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Python & Virtual Environments
+# ------------------------------------------------------------------------------
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
 
-# Pytest / Coverage
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Environments
-.env
-.venv
-env/
+# Virtual Environments
+.venv/
 venv/
 ENV/
+env/
+env.bak/
+venv.bak/
 
-# Distribution / Packaging
+# Testing & Coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# Packaging & Builds
 dist/
 build/
 *.egg-info/
+*.egg
+eggs/
+.eggs/
 
-# Logs
+# ------------------------------------------------------------------------------
+# Node.js / Web Frontend (React / Vite)
+# ------------------------------------------------------------------------------
+node_modules/
+frontend/node_modules/
+.npm/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Vite / Frontend build artifacts
+frontend/dist/
+frontend/build/
+.vite/
+
+# ------------------------------------------------------------------------------
+# Mobile Development (Flutter / React Native / Expo)
+# ------------------------------------------------------------------------------
+mobile/node_modules/
+mobile/.dart_tool/
+mobile/.packages
+mobile/build/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Android / iOS builds
+mobile/android/.gradle/
+mobile/android/captures/
+mobile/android/app/build/
+mobile/ios/Pods/
+mobile/ios/.symlinks/
+*.apk
+*.aab
+*.ipa
+
+# ------------------------------------------------------------------------------
+# Environment Variables & Secrets
+# ------------------------------------------------------------------------------
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.pem
+*.key
+
+# ------------------------------------------------------------------------------
+# Logs & Telemetry Artifacts
+# ------------------------------------------------------------------------------
 *.log
+logs/
 results/*.jsonl
+results/*.csv
+results/*.png
+results/*.mp4
+!results/.gitkeep
+!data/calibration/.gitkeep
+!data/replay/.gitkeep
+
+# ------------------------------------------------------------------------------
+# IDEs & Editor Configuration
+# ------------------------------------------------------------------------------
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+
+# ------------------------------------------------------------------------------
+# Operating System Artifacts
+# ------------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
