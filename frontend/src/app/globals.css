@@ -1,27 +1,42 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,500;1,600;1,700&display=swap');
 @import "tailwindcss";
 
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
-  --surface-card: #ffffff;
-  --surface-card-hover: #f8fafc;
-  --surface-input: #f8fafc;
-  --border-subtle: #e2e8f0;
-  --border-focus: #2563eb;
-  --accent-primary: #2563eb;
-  --accent-primary-hover: #1d4ed8;
-  --accent-text: #ffffff;
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #94a3b8;
-  --status-ok: #16a34a;
-  --status-warn: #d97706;
-  --status-alert: #dc2626;
+  /* Heritage Editorial Gallery & Gilded Gold Palette */
+  --bg-parchment: #FAF7F2;
+  --bg-parchment-warm: #F4EFE6;
+  --bg-card-linen: #FFFFFF;
+  --bg-panel-elevated: #FCFAF7;
+  
+  --accent-vermillion: #FF3820;
+  --accent-vermillion-bright: #E5352B;
+  --accent-vermillion-dark: #C92410;
+  --accent-vermillion-glow: rgba(255, 56, 32, 0.35);
+  
+  --gold-gilded: #C5A059;
+  --gold-gilded-bright: #D4AF37;
+  --gold-gilded-dark: #8C6D31;
+  --gold-border: rgba(197, 160, 89, 0.45);
+  --gold-border-subtle: rgba(197, 160, 89, 0.25);
+  --gold-glow: rgba(197, 160, 89, 0.3);
+
+  --text-noir: #1A1715;
+  --text-noir-soft: #2D2724;
+  --text-muted: #78716C;
+  --text-muted-light: #A8A29E;
+
+  --danger-estop: #E5352B;
+  --status-good: #0F766E;
+  --status-emerald: #10B981;
+
+  /* Baseline system variables */
+  --background: var(--bg-parchment);
+  --foreground: var(--text-noir);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: var(--bg-parchment);
+  --color-foreground: var(--text-noir);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -32,8 +47,8 @@
 
 html,
 body {
-  background-color: var(--background);
-  color: var(--foreground);
+  background-color: var(--bg-parchment);
+  color: var(--text-noir);
   font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   min-height: 100vh;
   margin: 0;
@@ -41,79 +56,208 @@ body {
   overflow-x: hidden;
 }
 
-/* Subtle dot-matrix pattern for light mode */
-.bg-dot-matrix-light {
-  background-image: radial-gradient(rgba(15, 23, 42, 0.07) 1px, transparent 1px);
-  background-size: 16px 16px;
+/* Editorial Typography */
+.font-serif-editorial {
+  font-family: "Didot", "Bodoni MT", "Playfair Display", "Cinzel", "Georgia", serif;
+  letter-spacing: -0.02em;
 }
 
-.bg-dot-matrix-blue {
-  background-image: radial-gradient(rgba(37, 99, 235, 0.08) 1.2px, transparent 1.2px);
-  background-size: 16px 16px;
+/* Subtle gallery linen parchment texture */
+.bg-parchment-pattern {
+  background-color: #FAF7F2;
+  background-image: radial-gradient(rgba(197, 160, 89, 0.12) 1px, transparent 1px);
+  background-size: 24px 24px;
 }
 
-/* Primary Pill Button */
-.btn-primary {
-  background-color: var(--accent-primary);
-  color: var(--accent-text);
-  font-weight: 600;
+/* Ornate Gilded Baroque & Modern Picture Frames */
+.frame-gilded {
+  background-color: #FFFFFF;
+  border: 1px solid rgba(197, 160, 89, 0.45);
+  box-shadow: 0 0 0 1px rgba(197, 160, 89, 0.2), 0 12px 36px -8px rgba(26, 23, 21, 0.09);
+  border-radius: 1.25rem;
+  position: relative;
+}
+
+.frame-gilded-gold {
+  border: 2px solid #C5A059;
+  box-shadow: 0 0 0 1px #8C6D31, 0 16px 40px -10px rgba(26, 23, 21, 0.15);
+}
+
+/* Oval Baroque Gilded Frame Ring */
+.frame-gilded-oval {
+  border: 3px solid #C5A059;
+  box-shadow: inset 0 0 12px rgba(140, 109, 49, 0.35), 0 0 0 2px #8C6D31, 0 14px 28px rgba(26, 23, 21, 0.12);
+}
+
+/* Museum Exhibition Brass/Gold Plaque */
+.plaque-gold {
+  background: linear-gradient(135deg, #FAF7F2 0%, #F5EFEB 100%);
+  border: 1px solid rgba(197, 160, 89, 0.6);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 2px 8px rgba(26, 23, 21, 0.04);
+}
+
+/* Primary Editorial Vermillion Button (CTA) */
+.btn-vermillion,
+.btn-primary-red,
+.btn-mecha {
+  background: linear-gradient(135deg, #FF3820 0%, #E5352B 60%, #C92410 100%);
+  color: #FFFFFF;
+  font-weight: 700;
   border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 4px 16px -2px rgba(229, 53, 43, 0.45), 0 0 0 1px rgba(197, 160, 89, 0.4);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 4px 14px -2px rgba(37, 99, 235, 0.25);
 }
 
-.btn-primary:hover {
-  background-color: var(--accent-primary-hover);
-  box-shadow: 0 6px 20px -2px rgba(37, 99, 235, 0.35);
+.btn-vermillion:hover,
+.btn-primary-red:hover,
+.btn-mecha:hover {
+  background: linear-gradient(135deg, #FF4D36 0%, #FF3820 60%, #D42813 100%);
+  box-shadow: 0 6px 24px 0px rgba(255, 56, 32, 0.6), 0 0 0 1.5px #C5A059;
   transform: translateY(-1px);
 }
 
-.btn-primary:active {
+.btn-vermillion:active,
+.btn-primary-red:active,
+.btn-mecha:active {
   transform: translateY(0);
 }
 
-/* Clean light inputs */
-.input-light {
-  background-color: #f8fafc;
-  border: 1px solid #e2e8f0;
-  color: #0f172a;
+/* Luxury Metric Cards */
+.card-metric-armor,
+.card-metric-dark {
+  background-color: #FFFFFF;
+  border: 1px solid rgba(197, 160, 89, 0.3);
+  box-shadow: 0 4px 16px -2px rgba(26, 23, 21, 0.05);
+  border-radius: 1rem;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.card-metric-armor:hover,
+.card-metric-dark:hover {
+  border-color: #C5A059;
+  box-shadow: 0 8px 24px -4px rgba(197, 160, 89, 0.25);
+  transform: translateY(-1px);
+}
+
+/* Status Badge - Approach */
+.badge-mecha-approach {
+  background-color: rgba(255, 56, 32, 0.1);
+  border: 1px solid rgba(255, 56, 32, 0.4);
+  color: #FF3820;
+}
+
+/* Gallery Cream Inputs */
+.input-dark,
+.input-gallery {
+  background-color: #FFFFFF;
+  border: 1px solid rgba(197, 160, 89, 0.35);
+  color: #1A1715;
   border-radius: 14px;
   padding: 12px 16px;
   font-size: 14px;
   outline: none;
   transition: all 0.2s ease;
   width: 100%;
+  box-shadow: inset 0 1px 3px rgba(26, 23, 21, 0.03);
 }
 
-.input-light:focus {
-  background-color: #ffffff;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+.input-dark:focus,
+.input-gallery:focus {
+  background-color: #FFFFFF;
+  border-color: #FF3820;
+  box-shadow: 0 0 0 3px rgba(255, 56, 32, 0.15), inset 0 1px 2px rgba(26, 23, 21, 0.02);
 }
 
-.input-light::placeholder {
-  color: #94a3b8;
+.input-dark::placeholder,
+.input-gallery::placeholder {
+  color: #A8A29E;
 }
 
-/* Scrollbar for light mode */
+/* Panel Armor mapped to Gallery Gilded Frame */
+.panel-armor,
+.panel-dark {
+  background-color: #FFFFFF;
+  border: 1px solid rgba(197, 160, 89, 0.4);
+  box-shadow: 0 0 0 1px rgba(197, 160, 89, 0.15), 0 12px 32px -4px rgba(26, 23, 21, 0.06);
+  border-radius: 1.25rem;
+}
+
+/* Gilded Gallery Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: #FAF7F2;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #C5A059;
+  border: 1px solid rgba(140, 109, 49, 0.3);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #8C6D31;
+}
+
+/* Background Design Motion Effects */
+@keyframes floatSlow {
+  0%, 100% {
+    transform: translateY(0px) rotate(-45deg);
+  }
+  50% {
+    transform: translateY(-16px) rotate(-43deg);
+  }
+}
+
+@keyframes floatReverse {
+  0%, 100% {
+    transform: translateY(0px) rotate(15deg);
+  }
+  50% {
+    transform: translateY(14px) rotate(17deg);
+  }
+}
+
+@keyframes pulseSoft {
+  0%, 100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.75;
+    transform: scale(1.04);
+  }
+}
+
+@keyframes dashFlow {
+  from {
+    stroke-dashoffset: 200;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.animate-float-capsule-1 {
+  animation: floatSlow 10s ease-in-out infinite;
+}
+
+.animate-float-capsule-2 {
+  animation: floatReverse 12s ease-in-out infinite;
+}
+
+.animate-pulse-soft {
+  animation: pulseSoft 6s ease-in-out infinite;
+}
+
+.animate-dash-flow {
+  animation: dashFlow 20s linear infinite;
 }

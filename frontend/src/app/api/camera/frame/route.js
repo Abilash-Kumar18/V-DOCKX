@@ -1,23 +1,23 @@
 import { NextResponse } from "next/server";
-import { updateFrame, getLatestFrame } from "@/lib/videoBroadcaster";
+import { updateBroadcastData, getLatestBroadcastData } from "@/lib/videoBroadcaster";
 
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { frame } = body;
+    const { frame, pose } = body;
 
-    if (!frame) {
-      return NextResponse.json({ error: "No frame provided" }, { status: 400 });
+    if (!frame && !pose) {
+      return NextResponse.json({ error: "No frame or pose provided" }, { status: 400 });
     }
 
-    updateFrame(frame);
+    updateBroadcastData({ frame, pose });
     return NextResponse.json({ success: true, timestamp: Date.now() });
   } catch (error) {
-    return NextResponse.json({ error: "Failed to broadcast frame" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to broadcast data" }, { status: 500 });
   }
 }
 
 export async function GET() {
-  const result = getLatestFrame();
+  const result = getLatestBroadcastData();
   return NextResponse.json(result);
 }

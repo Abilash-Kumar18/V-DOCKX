@@ -4,16 +4,17 @@ import { verifyCredentials } from "@/lib/authStore";
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { email, password } = body;
+    const identifier = body.email || body.username;
+    const { password } = body;
 
-    if (!email || !password) {
+    if (!identifier || !password) {
       return NextResponse.json(
-        { error: "Email and password are required." },
+        { error: "Username and password are required." },
         { status: 400 }
       );
     }
 
-    const result = verifyCredentials(email, password);
+    const result = verifyCredentials(identifier, password);
     if (result.error) {
       return NextResponse.json({ error: result.error }, { status: 401 });
     }
