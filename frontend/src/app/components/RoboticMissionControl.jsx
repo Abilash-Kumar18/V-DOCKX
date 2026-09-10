@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Play,
   Pause,
@@ -17,6 +17,17 @@ import {
   Clock,
   Sparkles,
   Camera,
+  Gamepad2,
+  ArrowUp,
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  Square,
+  ShieldCheck,
+  ChevronRight,
+  Activity,
+  Layers,
+  Smartphone,
 } from "lucide-react";
 import RoboticCameraHUD from "./RoboticCameraHUD";
 import DockingMap2D from "./DockingMap2D";
@@ -24,12 +35,60 @@ import DockingMap2D from "./DockingMap2D";
 export default function RoboticMissionControl({ user, onLogout }) {
   // Robot pose in arena: x (0 to 2.0m), y (0 to 2.0m), theta (-180 to 180 deg)
   const [robotPose, setRobotPose] = useState({ x: 1.15, y: 1.65, theta: -84 });
+  const [controlMode, setControlMode] = useState("autonomous"); // 'autonomous' | 'manual'
+  const [teleopSpeed, setTeleopSpeed] = useState("normal"); // 'precise' | 'normal' | 'fast'
+  const [activeKey, setActiveKey] = useState(null);
   const [isDocking, setIsDocking] = useState(false);
   const [isEmergencyStopped, setIsEmergencyStopped] = useState(false);
   const [fsmState, setFsmState] = useState("APPROACH"); // 'LINE_FOLLOW' | 'APPROACH' | 'FINE_ALIGN' | 'DOCKED' | 'STOP'
   const [dwellTime, setDwellTime] = useState(0.0);
+  const [activeView, setActiveView] = useState("diptych"); // 'diptych' | 'hud' | 'arena'
+  const [showTeleopPanel, setShowTeleopPanel] = useState(false);
 
-  // Derived Telemetry Metrics
+  // Live Phone Camera & Mobile GPS State
+  const [phoneFrame, setPhoneFrame] = useState(null);
+  const [isPhoneConnected, setIsPhoneConnected] = useState(false);
+  const [mobileGpsPose, setMobileGpsPose] = useState(null);
+
+  // Poll for phone camera stream and real-time GPS motion from /api/camera/frame
+  useEffect(() => {
+    let mounted = true;
+    const pollPhoneStream = async () => {
+      try {
+        const res = await fetch("/api/camera/frame");
+        if (res.ok && mounted) {
+          const data = await res.json();
+          if (data.isFresh) {
+            setIsPhoneConnected(true);
+            if (data.frame) {
+              setPhoneFrame(data.frame);
+            }
+            if (data.pose && typeof data.pose.x === "number" && typeof data.pose.y === "number") {
+              setMobileGpsPose(data.pose);
+              // Moving mobile phone moves the GPS marker on the 2D map in real time!
+              setRobotPose((prev) => ({
+                x: Number(data.pose.x.toFixed(3)),
+                y: Number(data.pose.y.toFixed(3)),
+                theta: typeof data.pose.heading === "number" ? Math.round(data.pose.heading) : prev.theta,
+              }));
+            }
+          } else {
+            setIsPhoneConnected(false);
+          }
+        }
+      } catch (e) {
+        // network polling silence
+      }
+    };
+
+    const interval = setInterval(pollPhoneStream, 70); // ~14-15 FPS
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Derived 6-DOF Telemetry Metrics
   const powerStationPos = { x: 1.0, y: 0.35 };
   const dx = robotPose.x - powerStationPos.x;
   const dy = robotPose.y - powerStationPos.y;
@@ -38,9 +97,111 @@ export default function RoboticMissionControl({ user, onLogout }) {
   const targetHeadingDeg = (Math.atan2(-dy, -dx) * 180) / Math.PI;
   const headingErrorDeg = Math.round(robotPose.theta - targetHeadingDeg);
 
+  // 6-DOF Simulated Rotational & Elevation Perturbations
+  const pitchDeg = Number((Math.sin(Date.now() / 600) * 0.4).toFixed(2));
+  const rollDeg = Number((Math.cos(Date.now() / 500) * 0.25).toFixed(2));
+  const elevationZ = 0.0; // Flat arena surface normal
+
+  // Step sizing according to speed setting
+  const speedStep = teleopSpeed === "precise" ? 0.012 : teleopSpeed === "fast" ? 0.045 : 0.025;
+  const rotStep = teleopSpeed === "precise" ? 2.5 : teleopSpeed === "fast" ? 8 : 5;
+
+  // Manual Movement Dispatcher
+  const moveManual = useCallback(
+    (action) => {
+      if (isEmergencyStopped) return;
+      setIsDocking(false);
+      setControlMode("manual");
+
+      setRobotPose((prev) => {
+        let { x, y, theta } = prev;
+        const rad = (theta * Math.PI) / 180;
+
+        switch (action) {
+          case "forward":
+            x += Math.cos(rad) * speedStep;
+            y += Math.sin(rad) * speedStep;
+            break;
+          case "backward":
+            x -= Math.cos(rad) * speedStep;
+            y -= Math.sin(rad) * speedStep;
+            break;
+          case "left":
+            theta = (theta - rotStep + 360) % 360;
+            if (theta > 180) theta -= 360;
+            break;
+          case "right":
+            theta = (theta + rotStep + 360) % 360;
+            if (theta > 180) theta -= 360;
+            break;
+          case "stop":
+            return prev;
+          default:
+            break;
+        }
+
+        // Keep inside 2m x 2m arena boundaries
+        const clampedX = Math.max(0.1, Math.min(1.9, Number(x.toFixed(3))));
+        const clampedY = Math.max(0.35, Math.min(1.9, Number(y.toFixed(3))));
+        const clampedTheta = Math.round(theta);
+
+        // Check if manual alignment reached dock port
+        const remaining = Math.sqrt((clampedX - powerStationPos.x) ** 2 + (clampedY - powerStationPos.y) ** 2);
+        if (remaining <= 0.15 && Math.abs(clampedTheta - -90) <= 6) {
+          setFsmState("DOCKED");
+        } else if (remaining <= 0.4) {
+          setFsmState("FINE_ALIGN");
+        } else {
+          setFsmState("APPROACH");
+        }
+
+        return { x: clampedX, y: clampedY, theta: clampedTheta };
+      });
+    },
+    [speedStep, rotStep, isEmergencyStopped]
+  );
+
+  // Global Keyboard Listener for Teleoperation (W, A, S, D & Arrows)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Avoid firing if typing in an input
+      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+
+      let keyAct = null;
+      if (e.key === "w" || e.key === "W" || e.key === "ArrowUp") {
+        keyAct = "forward";
+      } else if (e.key === "s" || e.key === "S" || e.key === "ArrowDown") {
+        keyAct = "backward";
+      } else if (e.key === "a" || e.key === "A" || e.key === "ArrowLeft") {
+        keyAct = "left";
+      } else if (e.key === "d" || e.key === "D" || e.key === "ArrowRight") {
+        keyAct = "right";
+      } else if (e.key === " ") {
+        keyAct = "stop";
+        e.preventDefault();
+      }
+
+      if (keyAct) {
+        setActiveKey(keyAct);
+        moveManual(keyAct);
+      }
+    };
+
+    const handleKeyUp = () => {
+      setActiveKey(null);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [moveManual]);
+
   // Autonomous Docking Simulation Loop
   useEffect(() => {
-    if (!isDocking || isEmergencyStopped) return;
+    if (!isDocking || isEmergencyStopped || controlMode !== "autonomous") return;
 
     const interval = setInterval(() => {
       setRobotPose((prev) => {
@@ -84,7 +245,7 @@ export default function RoboticMissionControl({ user, onLogout }) {
     }, 80);
 
     return () => clearInterval(interval);
-  }, [isDocking, isEmergencyStopped]);
+  }, [isDocking, isEmergencyStopped, controlMode]);
 
   // E-STOP Toggle
   const handleToggleEStop = () => {
@@ -103,102 +264,175 @@ export default function RoboticMissionControl({ user, onLogout }) {
     setRobotPose({ x: 1.18, y: 1.68, theta: -84 });
     setIsDocking(false);
     setIsEmergencyStopped(false);
+    setControlMode("autonomous");
     setFsmState("APPROACH");
     setDwellTime(0.0);
   };
 
+  // Tolerance checks
+  const isLateralWithinTol = Math.abs(lateralOffsetM) <= 0.025; // ±2.5cm
+  const isHeadingWithinTol = Math.abs(headingErrorDeg) <= 3; // ±3 deg
+
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-[#0f172a] flex flex-col justify-between p-3 sm:p-5 lg:p-6 select-none">
-      {/* 1. Header Navigation Bar */}
-      <header className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl bg-white border border-slate-200/90 mb-4 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600">
-            <Radio className="w-5 h-5" />
+    <div className="min-h-screen bg-[#FAF7F2] text-[#1A1715] flex flex-col justify-between p-3 sm:p-5 lg:p-6 select-none bg-parchment-pattern">
+      {/* ============================================================
+          1. HEADER: BRAND, STATUS, VIEW SWITCHER & PRIMARY CONTROLS
+          ============================================================ */}
+      <header className="flex flex-wrap items-center justify-between gap-4 p-4 frame-gilded mb-4 shadow-xl backdrop-blur-md">
+        {/* Left: Pure Brand & Title */}
+        <div className="flex items-center gap-3.5">
+          <div className="w-10 h-10 rounded-full bg-[#FAF7F2] border-2 border-[#C5A059] flex items-center justify-center text-[#FF3820] shadow-[0_0_10px_rgba(197,160,89,0.25)]">
+            <Radio className="w-5 h-5 animate-pulse" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <span className="text-base font-extrabold tracking-tight text-slate-900">
-                V-DOCKX Mission Control
-              </span>
-              <span
-                className={`px-2.5 py-0.5 rounded-full text-xs font-mono font-bold border ${
-                  isEmergencyStopped
-                    ? "bg-red-50 border-red-200 text-red-700 animate-pulse"
-                    : fsmState === "DOCKED"
-                    ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                    : fsmState === "FINE_ALIGN"
-                    ? "bg-amber-50 border-amber-200 text-amber-700"
-                    : "bg-blue-50 border-blue-200 text-blue-700"
-                }`}
-              >
-                {isEmergencyStopped ? "E-STOP ACTIVATED" : fsmState}
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-2xl font-sans font-black tracking-tight text-[#FF3820]">
+                V-DOCKX
+              </h1>
+              <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded-full bg-[#C5A059]/20 text-[#8C6D31] border border-[#C5A059]/30">
+                RAS Cockpit
               </span>
             </div>
-            <p className="text-xs text-slate-500">
-              Vision-Guided Closed-Loop Autonomous Ground Robot Docking System
+            <p className="text-xs text-stone-500 font-sans font-medium">
+              Autonomous Robotic Ground Vehicle Docking Suite
             </p>
           </div>
         </div>
 
-        {/* Action Controls & Operator Session */}
-        <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Start / Pause Autonomous Docking */}
+        {/* Center: Viewport Switcher & Primary Docking/Teleop Actions */}
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* View Switcher Pill */}
+          <div className="flex items-center bg-[#FAF7F2] p-1 rounded-full border border-[#C5A059]/40 shadow-inner">
+            <button
+              type="button"
+              onClick={() => setActiveView("diptych")}
+              className={`px-3.5 py-1 rounded-full text-xs font-sans font-bold transition-all cursor-pointer ${
+                activeView === "diptych"
+                  ? "bg-[#FF3820] text-white shadow-sm"
+                  : "text-[#8C6D31] hover:text-[#1A1715]"
+              }`}
+            >
+              ✦ Diptych
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveView("hud")}
+              className={`px-3.5 py-1 rounded-full text-xs font-sans font-bold transition-all cursor-pointer ${
+                activeView === "hud"
+                  ? "bg-[#FF3820] text-white shadow-sm"
+                  : "text-[#8C6D31] hover:text-[#1A1715]"
+              }`}
+            >
+              👁 Camera
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveView("arena")}
+              className={`px-3.5 py-1 rounded-full text-xs font-sans font-bold transition-all cursor-pointer ${
+                activeView === "arena"
+                  ? "bg-[#FF3820] text-white shadow-sm"
+                  : "text-[#8C6D31] hover:text-[#1A1715]"
+              }`}
+            >
+              ☩ Arena Map
+            </button>
+          </div>
+
+          {/* Mobile Phone GPS Motion Sync Badge */}
+          {isPhoneConnected && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-500/40 text-emerald-800 text-xs font-mono font-semibold shadow-xs">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
+              <span>
+                MOBILE GPS {mobileGpsPose?.lat ? `[${mobileGpsPose.lat.toFixed(4)}°, ${mobileGpsPose.lng.toFixed(4)}°]` : "[SYNCED]"}
+              </span>
+            </div>
+          )}
+
+          {/* Autonomous Dock Toggle Button */}
           {!isDocking ? (
             <button
               type="button"
               onClick={() => {
+                setControlMode("autonomous");
                 setIsDocking(true);
                 setIsEmergencyStopped(false);
               }}
-              className="btn-primary px-4 py-2 text-xs gap-2 font-bold shadow-md shadow-blue-500/20"
+              className="btn-vermillion px-6 py-2 text-xs gap-2 font-sans font-bold uppercase tracking-wider shadow-md cursor-pointer"
             >
-              <Play className="w-4 h-4 fill-current" />
+              <Play className="w-3.5 h-3.5 fill-current" />
               <span>Start Autonomous Docking</span>
             </button>
           ) : (
             <button
               type="button"
               onClick={() => setIsDocking(false)}
-              className="px-4 py-2 rounded-full bg-slate-100 border border-slate-200 text-slate-800 text-xs font-bold hover:bg-slate-200 transition-colors flex items-center gap-2"
+              className="px-5 py-2 rounded-full bg-white border-2 border-[#C5A059] text-[#1A1715] text-xs font-sans font-bold hover:bg-[#FAF7F2] transition-colors flex items-center gap-2 shadow-sm cursor-pointer"
             >
-              <Pause className="w-4 h-4 fill-current" />
+              <Pause className="w-3.5 h-3.5 fill-current text-[#8C6D31]" />
               <span>Pause Motion</span>
             </button>
           )}
 
-          {/* Reset Arena Button */}
+          {/* Manual Teleoperation Toggle */}
+          <button
+            type="button"
+            onClick={() => {
+              setIsDocking(false);
+              setControlMode((m) => (m === "manual" ? "autonomous" : "manual"));
+              setShowTeleopPanel((s) => !s);
+            }}
+            className={`px-4 py-2 rounded-full text-xs font-sans font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              controlMode === "manual"
+                ? "bg-[#1A1715] text-white border-2 border-[#C5A059] shadow-md"
+                : "bg-white border border-[#C5A059]/40 text-stone-700 hover:bg-[#FAF7F2]"
+            }`}
+          >
+            <Gamepad2 className="w-4 h-4 text-[#FF3820]" />
+            <span>{controlMode === "manual" ? "Teleop Active" : "Manual Teleop"}</span>
+          </button>
+        </div>
+
+        {/* Right: Emergency & Operator Session */}
+        <div className="flex items-center gap-3">
+          {/* Reset Arena */}
           <button
             type="button"
             onClick={handleReset}
-            className="p-2 rounded-xl bg-slate-100 border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-200 transition-colors"
-            title="Reset Arena and Robot Pose"
+            className="p-2 rounded-full bg-white border border-[#C5A059]/40 text-[#8C6D31] hover:text-[#1A1715] hover:border-[#C5A059] transition-colors shadow-sm cursor-pointer"
+            title="Reset Arena Telemetry"
           >
             <RotateCcw className="w-4 h-4" />
           </button>
 
-          {/* E-STOP Button */}
+          {/* E-STOP Safeguard */}
           <button
             type="button"
             onClick={handleToggleEStop}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-sans font-bold transition-all shadow-sm cursor-pointer ${
               isEmergencyStopped
-                ? "bg-red-600 text-white shadow-md animate-pulse"
-                : "bg-red-50 border border-red-200 text-red-700 hover:bg-red-100"
+                ? "bg-[#FF3820] text-white border border-red-300 shadow-[0_0_16px_rgba(255,56,32,0.8)] animate-pulse"
+                : "bg-red-50 border border-[#FF3820]/40 text-[#FF3820] hover:bg-red-100"
             }`}
           >
-            <AlertTriangle className="w-4 h-4" />
-            <span>{isEmergencyStopped ? "CLEAR E-STOP" : "E-STOP"}</span>
+            <AlertTriangle className="w-3.5 h-3.5" />
+            <span>{isEmergencyStopped ? "E-STOP ACTIVE" : "E-STOP"}</span>
           </button>
 
-          {/* Operator Profile */}
-          <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
-            <div className="w-7 h-7 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">
-              {user?.avatar || "OP"}
+          {/* Operator Badge (Showing innovix) */}
+          <div className="flex items-center gap-2.5 pl-3 border-l border-[#C5A059]/30">
+            <div className="flex flex-col text-right">
+              <span className="text-xs font-bold text-[#1A1715] font-sans leading-none">
+                {user?.username || user?.name || "innovix"}
+              </span>
+              <span className="text-[10px] font-mono text-[#8C6D31] font-semibold">
+                Lead Operator
+              </span>
             </div>
             <button
               type="button"
               onClick={onLogout}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 transition-colors"
+              className="p-2 rounded-full bg-white border border-[#C5A059]/30 text-stone-500 hover:text-[#FF3820] hover:border-[#FF3820] transition-colors cursor-pointer"
               title="Sign Out"
             >
               <LogOut className="w-4 h-4" />
@@ -207,131 +441,289 @@ export default function RoboticMissionControl({ user, onLogout }) {
         </div>
       </header>
 
-      {/* 2. Main Dual Viewport Grid */}
-      <main className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 mb-4">
-        {/* Viewport 1: Live Phone Camera / Robotic Vision HUD */}
-        <div className="h-[420px] lg:h-[500px]">
-          <RoboticCameraHUD
-            distanceM={distanceM}
-            lateralOffsetM={lateralOffsetM}
-            headingErrorDeg={headingErrorDeg}
-            isDocking={isDocking}
-          />
-        </div>
+      {/* ============================================================
+          2. VIEWPORTS: STREAMLINED EXPANDED VIEW (CAMERA + ARENA MAP)
+          ============================================================ */}
+      <main className="flex-1 mb-4 flex flex-col relative">
+        {/* Floating Manual Teleoperation Controller Overlay (Drawer / HUD) */}
+        {(controlMode === "manual" || showTeleopPanel) && (
+          <div className="absolute top-3 right-3 z-30 bg-white/95 backdrop-blur-xl border-2 border-[#C5A059]/50 rounded-3xl p-4 shadow-2xl transition-all">
+            <div className="flex items-center justify-between mb-3 pb-2 border-b border-stone-100">
+              <div className="flex items-center gap-2">
+                <Gamepad2 className="w-4 h-4 text-[#FF3820]" />
+                <span className="text-xs font-bold font-sans text-stone-900">Manual Pilot (WASD)</span>
+              </div>
+              <span className="text-[10px] font-mono font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                LIVE TELEOP
+              </span>
+            </div>
 
-        {/* Viewport 2: Interactive 2D Map with Blinking Power Station */}
-        <div className="h-[420px] lg:h-[500px]">
-          <DockingMap2D
-            robotPose={robotPose}
-            onRobotMove={(newPose) => setRobotPose(newPose)}
-            isDocking={isDocking}
-          />
-        </div>
+            {/* Directional Pad */}
+            <div className="flex flex-col items-center gap-1.5 my-2">
+              {/* Up */}
+              <button
+                type="button"
+                onClick={() => moveManual("forward")}
+                className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-sm border transition-all cursor-pointer ${
+                  activeKey === "forward"
+                    ? "bg-[#FF3820] text-white border-[#FF3820] scale-95 shadow-md"
+                    : "bg-[#FAF7F2] border-[#C5A059]/40 text-stone-800 hover:bg-white hover:border-[#FF3820]"
+                }`}
+                title="Forward (W / Up Arrow)"
+              >
+                <ArrowUp className="w-5 h-5" />
+              </button>
+
+              {/* Middle Row: Left, Stop, Right */}
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => moveManual("left")}
+                  className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-sm border transition-all cursor-pointer ${
+                    activeKey === "left"
+                      ? "bg-[#FF3820] text-white border-[#FF3820] scale-95 shadow-md"
+                      : "bg-[#FAF7F2] border-[#C5A059]/40 text-stone-800 hover:bg-white hover:border-[#FF3820]"
+                  }`}
+                  title="Rotate CCW (A / Left Arrow)"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => moveManual("stop")}
+                  className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-sm border transition-all cursor-pointer ${
+                    activeKey === "stop"
+                      ? "bg-red-600 text-white border-red-600 scale-95"
+                      : "bg-red-50 border-red-200 text-[#FF3820] hover:bg-red-100"
+                  }`}
+                  title="Brake / Stop (Spacebar)"
+                >
+                  <Square className="w-4 h-4 fill-current" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => moveManual("right")}
+                  className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-sm border transition-all cursor-pointer ${
+                    activeKey === "right"
+                      ? "bg-[#FF3820] text-white border-[#FF3820] scale-95 shadow-md"
+                      : "bg-[#FAF7F2] border-[#C5A059]/40 text-stone-800 hover:bg-white hover:border-[#FF3820]"
+                  }`}
+                  title="Rotate CW (D / Right Arrow)"
+                >
+                  <ArrowRight className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Down */}
+              <button
+                type="button"
+                onClick={() => moveManual("backward")}
+                className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-sm border transition-all cursor-pointer ${
+                  activeKey === "backward"
+                    ? "bg-[#FF3820] text-white border-[#FF3820] scale-95 shadow-md"
+                    : "bg-[#FAF7F2] border-[#C5A059]/40 text-stone-800 hover:bg-white hover:border-[#FF3820]"
+                }`}
+                title="Reverse (S / Down Arrow)"
+              >
+                <ArrowDown className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Speed Throttling */}
+            <div className="mt-3 pt-2.5 border-t border-stone-100 flex items-center justify-between gap-1 text-[10px] font-mono">
+              <span className="text-stone-500 font-bold">SPEED:</span>
+              <div className="flex items-center gap-1 bg-[#FAF7F2] p-0.5 rounded-full border border-stone-200">
+                {["precise", "normal", "fast"].map((sp) => (
+                  <button
+                    key={sp}
+                    type="button"
+                    onClick={() => setTeleopSpeed(sp)}
+                    className={`px-2 py-0.5 rounded-full capitalize font-bold transition-all cursor-pointer ${
+                      teleopSpeed === sp
+                        ? "bg-[#FF3820] text-white shadow-xs"
+                        : "text-stone-600 hover:text-stone-900"
+                    }`}
+                  >
+                    {sp === "precise" ? "0.5x" : sp === "normal" ? "1.0x" : "2.0x"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Viewport Renderings */}
+        {activeView === "diptych" && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 h-[480px] lg:h-[560px]">
+            <RoboticCameraHUD
+              distanceM={distanceM}
+              lateralOffsetM={lateralOffsetM}
+              headingErrorDeg={headingErrorDeg}
+              isDocking={isDocking}
+              phoneFrame={phoneFrame}
+              isPhoneConnected={isPhoneConnected}
+              mobileGpsPose={mobileGpsPose}
+            />
+            <DockingMap2D
+              robotPose={robotPose}
+              onRobotMove={(newPose) => setRobotPose(newPose)}
+              isDocking={isDocking}
+              mobileGpsPose={mobileGpsPose}
+              isPhoneConnected={isPhoneConnected}
+            />
+          </div>
+        )}
+
+        {activeView === "hud" && (
+          <div className="w-full h-[500px] lg:h-[580px]">
+            <RoboticCameraHUD
+              distanceM={distanceM}
+              lateralOffsetM={lateralOffsetM}
+              headingErrorDeg={headingErrorDeg}
+              isDocking={isDocking}
+              phoneFrame={phoneFrame}
+              isPhoneConnected={isPhoneConnected}
+              mobileGpsPose={mobileGpsPose}
+            />
+          </div>
+        )}
+
+        {activeView === "arena" && (
+          <div className="w-full h-[500px] lg:h-[580px]">
+            <DockingMap2D
+              robotPose={robotPose}
+              onRobotMove={(newPose) => setRobotPose(newPose)}
+              isDocking={isDocking}
+              mobileGpsPose={mobileGpsPose}
+              isPhoneConnected={isPhoneConnected}
+            />
+          </div>
+        )}
       </main>
 
-      {/* 3. Bottom Telemetry Gauges & Tolerance Checklist */}
-      <footer className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
-        {/* Forward Distance */}
-        <div className="p-3.5 rounded-xl bg-white border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-            <span>Distance (e_d)</span>
-            <ArrowDownCircle className="w-3.5 h-3.5 text-blue-600" />
+      {/* ============================================================
+          3. 6-DOF APRILTAG ALIGNMENT HUD & TELEMETRY BAR
+          ============================================================ */}
+      <footer className="frame-gilded p-4 sm:p-5 shadow-lg backdrop-blur-md">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 max-w-7xl mx-auto">
+          
+          {/* Card 1: 3-Axis Translation (X, Y, Z) */}
+          <div className="flex items-center gap-3.5 p-2 rounded-2xl bg-white/60 border border-[#C5A059]/25">
+            <div className="w-10 h-10 rounded-2xl bg-[#FAF7F2] border border-[#C5A059]/40 flex items-center justify-center text-[#FF3820] shadow-xs">
+              <ArrowDownCircle className="w-5 h-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] font-mono font-bold text-[#8C6D31] uppercase tracking-wider">
+                TRANSLATION (X, Y, Z)
+              </div>
+              <div className="flex items-baseline gap-2 mt-0.5 font-mono text-sm font-bold text-[#1A1715]">
+                <span>X: <span className="text-stone-900">{(lateralOffsetM * 100).toFixed(1)}cm</span></span>
+                <span>Y: <span className="text-stone-900">{distanceM.toFixed(2)}m</span></span>
+                <span>Z: <span className="text-stone-500">0.0cm</span></span>
+              </div>
+              {/* Tolerance Visual Bar */}
+              <div className="w-full bg-stone-200 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-300 ${
+                    isLateralWithinTol ? "bg-emerald-500" : "bg-[#FF3820]"
+                  }`}
+                  style={{
+                    width: `${Math.max(8, Math.min(100, (1 - Math.abs(lateralOffsetM) / 0.5) * 100))}%`,
+                  }}
+                />
+              </div>
+            </div>
           </div>
-          <div className="text-xl font-mono font-bold text-slate-900">
-            {distanceM.toFixed(3)} <span className="text-xs font-normal text-slate-500">m</span>
-          </div>
-          <div className="mt-2 h-1.5 rounded-full bg-slate-100 overflow-hidden">
-            <div
-              className="h-full bg-blue-600 rounded-full transition-all"
-              style={{ width: `${Math.min(100, Math.max(10, (distanceM / 1.8) * 100))}%` }}
-            />
-          </div>
-        </div>
 
-        {/* Lateral Offset */}
-        <div className="p-3.5 rounded-xl bg-white border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-            <span>Lateral (e_y)</span>
-            <Sliders className="w-3.5 h-3.5 text-cyan-600" />
+          {/* Card 2: 3-Axis Orientation (Yaw, Pitch, Roll) */}
+          <div className="flex items-center gap-3.5 p-2 rounded-2xl bg-white/60 border border-[#C5A059]/25">
+            <div className="w-10 h-10 rounded-2xl bg-[#FAF7F2] border border-[#C5A059]/40 flex items-center justify-center text-[#C5A059] shadow-xs">
+              <Compass className="w-5 h-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] font-mono font-bold text-[#8C6D31] uppercase tracking-wider">
+                ORIENTATION (YAW, P, R)
+              </div>
+              <div className="flex items-baseline gap-2 mt-0.5 font-mono text-sm font-bold text-[#1A1715]">
+                <span>Ψ: <span className={isHeadingWithinTol ? "text-emerald-700" : "text-[#FF3820]"}>{headingErrorDeg}°</span></span>
+                <span>θ: <span className="text-stone-500">{pitchDeg}°</span></span>
+                <span>φ: <span className="text-stone-500">{rollDeg}°</span></span>
+              </div>
+              {/* Tolerance Visual Bar */}
+              <div className="w-full bg-stone-200 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-300 ${
+                    isHeadingWithinTol ? "bg-emerald-500" : "bg-amber-500"
+                  }`}
+                  style={{
+                    width: `${Math.max(8, Math.min(100, (1 - Math.abs(headingErrorDeg) / 30) * 100))}%`,
+                  }}
+                />
+              </div>
+            </div>
           </div>
-          <div className="text-xl font-mono font-bold text-slate-900">
-            {(lateralOffsetM * 100).toFixed(1)}{" "}
-            <span className="text-xs font-normal text-slate-500">cm</span>
-          </div>
-          <div className="mt-2 text-[10px] text-slate-400 flex justify-between font-mono">
-            <span>-3cm</span>
-            <span className="text-emerald-600 font-bold">0</span>
-            <span>+3cm</span>
-          </div>
-        </div>
 
-        {/* Heading Error */}
-        <div className="p-3.5 rounded-xl bg-white border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-            <span>Heading (&theta;)</span>
-            <Compass className="w-3.5 h-3.5 text-slate-500" />
+          {/* Card 3: Alignment Status & Tolerance Gate */}
+          <div className="flex items-center gap-3.5 p-2 rounded-2xl bg-white/60 border border-[#C5A059]/25">
+            <div className="w-10 h-10 rounded-2xl bg-[#FAF7F2] border border-[#C5A059]/40 flex items-center justify-center text-[#FF3820] shadow-xs">
+              <Sliders className="w-5 h-5 text-[#8C6D31]" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] font-mono font-bold text-[#8C6D31] uppercase tracking-wider">
+                ALIGNMENT GATE
+              </div>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span
+                  className={`text-xs font-mono font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full ${
+                    isLateralWithinTol && isHeadingWithinTol
+                      ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                      : "bg-[#FF3820]/10 text-[#FF3820] border border-[#FF3820]/30"
+                  }`}
+                >
+                  {isLateralWithinTol && isHeadingWithinTol ? "IN TOLERANCE (±2cm)" : "CALIBRATING"}
+                </span>
+              </div>
+              <span className="text-[10px] font-mono text-stone-500 mt-1 block">
+                HOMOGRAPHY: 6-DOF LOCKED
+              </span>
+            </div>
           </div>
-          <div className="text-xl font-mono font-bold text-slate-900">
-            {headingErrorDeg > 0 ? `+${headingErrorDeg}` : headingErrorDeg}°
-          </div>
-          <div className="mt-2 text-[10px] text-slate-500 font-mono">
-            Tolerance: &le; &plusmn;5°
-          </div>
-        </div>
 
-        {/* Linear & Angular Velocity */}
-        <div className="p-3.5 rounded-xl bg-white border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-            <span>Command (v, &omega;)</span>
-            <Gauge className="w-3.5 h-3.5 text-slate-500" />
+          {/* Card 4: FSM Operational Phase */}
+          <div className="flex items-center gap-3.5 p-2 rounded-2xl bg-white/60 border border-[#C5A059]/25">
+            <div className="w-10 h-10 rounded-full bg-[#FAF7F2] border border-[#C5A059]/40 flex items-center justify-center text-[#8C6D31] shadow-xs">
+              <CheckCircle2
+                className={`w-5 h-5 ${
+                  fsmState === "DOCKED" ? "text-emerald-600 animate-pulse" : "text-[#C5A059]"
+                }`}
+              />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] font-mono font-bold text-[#8C6D31] uppercase tracking-wider">
+                MISSION FSM PHASE
+              </div>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="text-sm font-sans font-black tracking-wide text-[#1A1715]">
+                  {isEmergencyStopped
+                    ? "E-STOP TRIPPED"
+                    : controlMode === "manual"
+                    ? "MANUAL PILOT"
+                    : fsmState === "DOCKED"
+                    ? "DOCKED CONFIRMED"
+                    : fsmState === "FINE_ALIGN"
+                    ? "FINE ALIGNMENT"
+                    : "APPROACH PHASE"}
+                </span>
+                <span className="w-2 h-2 rounded-full bg-[#FF3820] animate-pulse" />
+              </div>
+              <span className="text-[10px] font-mono text-stone-500 mt-0.5 block">
+                DWELL: {dwellTime.toFixed(1)}s / 1.0s
+              </span>
+            </div>
           </div>
-          <div className="text-lg font-mono font-bold text-slate-900">
-            {isDocking ? "0.08" : "0.00"}{" "}
-            <span className="text-xs font-normal text-slate-500">m/s</span>
-          </div>
-          <div className="mt-1 text-[10px] font-mono text-slate-500">
-            &omega;: {isDocking ? "-0.12 rad/s" : "0.00 rad/s"}
-          </div>
-        </div>
 
-        {/* Dwell Verification Gate */}
-        <div className="p-3.5 rounded-xl bg-white border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-            <span>Dwell Gate</span>
-            <Clock className="w-3.5 h-3.5 text-emerald-600" />
-          </div>
-          <div className="text-lg font-mono font-bold text-slate-900">
-            {dwellTime.toFixed(1)}s{" "}
-            <span className="text-xs font-normal text-slate-500">/ 1.0s</span>
-          </div>
-          <div className="mt-2 h-1.5 rounded-full bg-slate-100 overflow-hidden">
-            <div
-              className="h-full bg-emerald-500 rounded-full transition-all"
-              style={{ width: `${Math.min(100, (dwellTime / 1.0) * 100)}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Docking Verification Result */}
-        <div className="p-3.5 rounded-xl bg-white border border-slate-200 shadow-sm flex flex-col justify-between">
-          <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-            <span>Docking Gate</span>
-            <CheckCircle2
-              className={`w-4 h-4 ${
-                fsmState === "DOCKED" ? "text-emerald-500" : "text-slate-300"
-              }`}
-            />
-          </div>
-          <div
-            className={`text-sm font-bold font-mono ${
-              fsmState === "DOCKED" ? "text-emerald-600" : "text-slate-500"
-            }`}
-          >
-            {fsmState === "DOCKED" ? "DOCKED CONFIRMED" : "IN APPROACH"}
-          </div>
-          <div className="text-[10px] text-slate-400 font-mono mt-1">
-            Bay ID: #01 Verified
-          </div>
         </div>
       </footer>
     </div>

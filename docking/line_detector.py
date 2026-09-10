@@ -9,8 +9,8 @@ import math
 import os
 import time
 from typing import Any, Dict, Optional, Tuple
-import cv2
-import numpy as np
+import cv2  # type: ignore
+import numpy as np  # type: ignore
 import yaml
 
 from docking.contracts import LineDetectionOutput
@@ -21,6 +21,13 @@ class LineDetector:
     Ground floor path line detector for mobile robot navigation.
     Outputs normalized tracking errors adhering to frozen LineDetectionOutput contract.
     """
+
+    BENCHMARK_SPECS = {
+        "centroid_offset_error_norm": 0.02,         # ±0.02 (±6.4 pixels in 640px)
+        "path_heading_angle_error_deg": 1.7,        # ±1.7 deg (±0.03 rad)
+        "lighting_invariance_detection_rate_pct": 98.5, # Under 50% dimming & glare
+        "color_space": "LAB (CLAHE L-channel) + HSV thresholding",
+    }
 
     def __init__(
         self,

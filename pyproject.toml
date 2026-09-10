@@ -1,0 +1,15 @@
+[tool.pyrefly]
+python-interpreter-path = "e:/Hack/V-DOCKX/.venv/Scripts/python.exe"
+search-path = [
+    "e:/Hack",
+    "e:/Hack/V-DOCKX",
+    "e:/Hack/V-DOCKX/docking",
+    "e:/Hack/V-DOCKX/.venv/Lib/site-packages",
+    "e:/Hack/.venv/Lib/site-packages",
+    "C:/Users/DHARANI/AppData/Local/Programs/Python/Python311/Lib/site-packages"
+]
+ignore-missing-imports = ["cv2", "cv2.*", "numpy", "numpy.*"]
+replace-imports-with-any = ["cv2", "cv2.*", "numpy", "numpy.*"]
+
+[tool.pyrefly.errors]
+missing-import = false

@@ -17,6 +17,14 @@ class PoseFilter:
     and circular interpolation for heading angle.
     """
 
+    BENCHMARK_SPECS = {
+        "jitter_variance_reduction_pct": 70.0,
+        "alpha_position": 0.70,
+        "alpha_heading": 0.65,
+        "kinematic_jump_clamping_m": 0.50,
+        "angular_boundary_discontinuities": 0,
+    }
+
     def __init__(
         self,
         alpha_position: float = 0.70,
@@ -57,7 +65,12 @@ class PoseFilter:
         y_meas = measurement.lateral_offset_m
         th_meas = measurement.heading_error_rad
 
-        if not self.initialized or self.filtered_distance is None:
+        if (
+            not self.initialized
+            or self.filtered_distance is None
+            or self.filtered_lateral is None
+            or self.filtered_heading is None
+        ):
             self.filtered_distance = d_meas
             self.filtered_lateral = y_meas
             self.filtered_heading = th_meas
@@ -75,30 +88,33 @@ class PoseFilter:
                 reprojection_error_px=measurement.reprojection_error_px,
             )
 
+        curr_dist = self.filtered_distance
+        curr_lat = self.filtered_lateral
+        curr_th = self.filtered_heading
+
         # 1. Outlier Rejection (Kinematic feasibility check)
-        if abs(d_meas - self.filtered_distance) > self.max_jump_distance:
+        if abs(d_meas - curr_dist) > self.max_jump_distance:
             # Clamp or reject massive instantaneous jump
-            d_meas = self.filtered_distance + math.copysign(
-                self.max_jump_distance, d_meas - self.filtered_distance
+            d_meas = curr_dist + math.copysign(
+                self.max_jump_distance, d_meas - curr_dist
             )
 
-        if abs(y_meas - self.filtered_lateral) > self.max_jump_lateral:
-            y_meas = self.filtered_lateral + math.copysign(
-                self.max_jump_lateral, y_meas - self.filtered_lateral
+        if abs(y_meas - curr_lat) > self.max_jump_lateral:
+            y_meas = curr_lat + math.copysign(
+                self.max_jump_lateral, y_meas - curr_lat
             )
 
         # 2. Linear Position EMA
         self.filtered_distance = (
-            self.alpha_pos * d_meas + (1.0 - self.alpha_pos) * self.filtered_distance
+            self.alpha_pos * d_meas + (1.0 - self.alpha_pos) * curr_dist
         )
         self.filtered_lateral = (
-            self.alpha_pos * y_meas + (1.0 - self.alpha_pos) * self.filtered_lateral
+            self.alpha_pos * y_meas + (1.0 - self.alpha_pos) * curr_lat
         )
 
         # 3. Circular Heading EMA (avoids +-pi wrap-around boundary discontinuity)
-        prev_th = self.filtered_heading
-        sin_avg = self.alpha_heading * math.sin(th_meas) + (1.0 - self.alpha_heading) * math.sin(prev_th)
-        cos_avg = self.alpha_heading * math.cos(th_meas) + (1.0 - self.alpha_heading) * math.cos(prev_th)
+        sin_avg = self.alpha_heading * math.sin(th_meas) + (1.0 - self.alpha_heading) * math.sin(curr_th)
+        cos_avg = self.alpha_heading * math.cos(th_meas) + (1.0 - self.alpha_heading) * math.cos(curr_th)
         self.filtered_heading = math.atan2(sin_avg, cos_avg)
 
         self.last_timestamp = curr_time

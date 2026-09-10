@@ -22,6 +22,9 @@ export default function RoboticCameraHUD({
   lateralOffsetM = 0.02,
   headingErrorDeg = -2.1,
   isDocking = false,
+  phoneFrame: propPhoneFrame = null,
+  isPhoneConnected: propIsPhoneConnected = false,
+  mobileGpsPose = null,
 }) {
   const videoRef = useRef(null);
   const mjpegImgRef = useRef(null);
@@ -45,8 +48,25 @@ export default function RoboticCameraHUD({
   const [isPhoneConnected, setIsPhoneConnected] = useState(false);
   const phoneImgRef = useRef(null);
 
-  // Poll for phone camera stream from /api/camera/frame
+  const effectiveIsPhoneConnected = propIsPhoneConnected || isPhoneConnected;
+  const effectivePhoneFrame = propPhoneFrame || phoneFrame;
+
+  // Pre-load frame onto offscreen image when frame updates
   useEffect(() => {
+    if (effectivePhoneFrame) {
+      if (!phoneImgRef.current) {
+        phoneImgRef.current = new Image();
+      }
+      phoneImgRef.current.src = effectivePhoneFrame;
+      setIsCameraActive(true);
+      setCameraError(null);
+    }
+  }, [effectivePhoneFrame]);
+
+  // Poll for phone camera stream from /api/camera/frame if not provided by parent
+  useEffect(() => {
+    if (propPhoneFrame) return;
+
     let mounted = true;
     const pollPhoneStream = async () => {
       try {
@@ -59,7 +79,6 @@ export default function RoboticCameraHUD({
             setIsCameraActive(true);
             setCameraError(null);
 
-            // Pre-load frame onto offscreen image
             if (!phoneImgRef.current) {
               phoneImgRef.current = new Image();
             }
@@ -78,7 +97,7 @@ export default function RoboticCameraHUD({
       mounted = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [propPhoneFrame]);
 
   // Discover all connected cameras (including USB webcams, Android 14 USB Webcams, Iriun, DroidCam)
   const refreshDevices = async () => {
@@ -226,22 +245,32 @@ export default function RoboticCameraHUD({
       ctx.clearRect(0, 0, w, h);
 
       // 1. Video Source Rendering
-      if (isPhoneConnected && phoneImgRef.current && phoneImgRef.current.complete) {
+      if (effectiveIsPhoneConnected && phoneImgRef.current && phoneImgRef.current.complete) {
         // Draw live phone camera frame
         try {
           ctx.drawImage(phoneImgRef.current, 0, 0, w, h);
         } catch (e) {}
       } else if (!isCameraActive) {
-        // Draw synthetic robotics perspective
+        // Draw synthetic robotics perspective with Light Studio Background
         const horizonY = h * 0.42;
+
+        // Light Upper Sky/Wall Plane
+        const skyGrad = ctx.createLinearGradient(0, 0, 0, horizonY);
+        skyGrad.addColorStop(0, "#FAF8F5");
+        skyGrad.addColorStop(1, "#EFEAE1");
+        ctx.fillStyle = skyGrad;
+        ctx.fillRect(0, 0, w, horizonY);
+
+        // Light Architectural Ground / Floor Plane
         const floorGrad = ctx.createLinearGradient(0, horizonY, 0, h);
-        floorGrad.addColorStop(0, "#e2e8f0");
-        floorGrad.addColorStop(1, "#cbd5e1");
+        floorGrad.addColorStop(0, "#E7E0D3");
+        floorGrad.addColorStop(0.3, "#DFD7C8");
+        floorGrad.addColorStop(1, "#D6CCB9");
         ctx.fillStyle = floorGrad;
         ctx.fillRect(0, horizonY, w, h - horizonY);
 
-        // Perspective Grid
-        ctx.strokeStyle = "rgba(100, 116, 139, 0.25)";
+        // Perspective Floor Grid Lines
+        ctx.strokeStyle = "rgba(140, 109, 49, 0.18)";
         ctx.lineWidth = 1;
         for (let gx = -4; gx <= 4; gx++) {
           ctx.beginPath();
@@ -249,97 +278,291 @@ export default function RoboticCameraHUD({
           ctx.lineTo(w / 2 + gx * 120, h);
           ctx.stroke();
         }
-
-        // Floor Path Guideline
-        const lineCenterX = w / 2 + lateralOffsetM * 500;
-        ctx.strokeStyle = "#ffffff";
-        ctx.lineWidth = 16;
-        ctx.beginPath();
-        ctx.moveTo(w / 2 + lateralOffsetM * 140, horizonY + 20);
-        ctx.lineTo(lineCenterX, h);
-        ctx.stroke();
       }
 
       if (showOverlays) {
         const horizonY = h * 0.42;
 
-        // 1. Dynamic Safety Corridor (Trapezoid Projection)
-        const topW = 100;
-        const bottomW = 340;
-        ctx.beginPath();
-        ctx.moveTo(w / 2 - topW / 2, horizonY + 20);
-        ctx.lineTo(w / 2 + topW / 2, horizonY + 20);
-        ctx.lineTo(w / 2 + bottomW / 2, h);
-        ctx.lineTo(w / 2 - bottomW / 2, h);
-        ctx.closePath();
+        // Proximity condition: turns bright RED when distance <= 0.45m
+        const isCriticalProximity = distanceM <= 0.45;
+        const isCautionProximity = !isCriticalProximity && distanceM <= 0.80;
 
-        ctx.fillStyle = "rgba(6, 182, 212, 0.12)";
-        ctx.strokeStyle = "rgba(6, 182, 212, 0.7)";
-        ctx.lineWidth = 2;
-        ctx.fill();
-        ctx.stroke();
+        // Dynamic rail colors based on proximity
+        const primaryRailColor = isCriticalProximity
+          ? "#FF1F1F"
+          : isCautionProximity
+          ? "#F59E0B"
+          : "#10B981";
 
-        // 2. Center Projected Path (Cyan Guide Line)
-        const lineBottomX = w / 2 + lateralOffsetM * 500;
-        ctx.strokeStyle = "#0284c7";
-        ctx.lineWidth = 2;
-        ctx.setLineDash([6, 6]);
-        ctx.beginPath();
-        ctx.moveTo(w / 2, horizonY + 20);
-        ctx.lineTo(lineBottomX, h);
-        ctx.stroke();
-        ctx.setLineDash([]);
+        const primaryRailGlow = isCriticalProximity
+          ? `rgba(255, 31, 31, ${0.45 + 0.3 * Math.sin(t * 8)})`
+          : isCautionProximity
+          ? "rgba(245, 158, 11, 0.3)"
+          : "rgba(16, 185, 129, 0.25)";
 
-        // 3. Line Centroid Crosshair (e_c)
-        const chX = lineBottomX;
-        const chY = h - 70;
-        ctx.strokeStyle = "#06b6d4";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(chX, chY, 16, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(chX - 24, chY);
-        ctx.lineTo(chX + 24, chY);
-        ctx.moveTo(chX, chY - 24);
-        ctx.lineTo(chX + 24, chY);
-        ctx.stroke();
-
-        ctx.fillStyle = "#0284c7";
-        ctx.font = "bold 10px monospace";
-        ctx.fillText(`e_c: ${(lateralOffsetM * 100).toFixed(1)}cm`, chX + 22, chY - 4);
-
-        // 4. Station AprilTag Docking Marker & 3D Axes
+        // Target Dock marker position
         const tagScale = Math.max(0.4, 1.2 - distanceM * 0.7);
         const tagW = 85 * tagScale;
         const tagH = 85 * tagScale;
         const tagX = w / 2 - tagW / 2 + lateralOffsetM * 260;
         const tagY = horizonY - tagH * 0.7;
+        const tagCenterX = tagX + tagW / 2;
+        const tagCenterY = tagY + tagH / 2;
 
-        // Station Docking Bay Boundary
-        ctx.strokeStyle = "#10b981";
+        // Dynamic Steer Curvature (based on heading error and lateral displacement)
+        const steerOffset = lateralOffsetM * 280 + headingErrorDeg * 2.2;
+
+        // ============================================================
+        // 1. AUTOMOTIVE DYNAMIC PARKING GUIDE LINES ("Imaginary Lines")
+        // ============================================================
+        const trackHalf = 175; // Half vehicle track width at bottom of camera
+        const botLeftX = w / 2 - trackHalf + steerOffset * 0.3;
+        const botRightX = w / 2 + trackHalf + steerOffset * 0.3;
+        const botY = h;
+
+        const topLeftX = tagCenterX - 42;
+        const topRightX = tagCenterX + 42;
+        const topY = horizonY + 18;
+
+        // Curve control points for Left and Right Rails
+        const midY = horizonY + (h - horizonY) * 0.48;
+        const midLeftX = (botLeftX + topLeftX) / 2 + steerOffset * 0.55;
+        const midRightX = (botRightX + topRightX) / 2 + steerOffset * 0.55;
+
+        // Outer Glow Corridor (Dynamic Safe Drive Zone)
+        ctx.beginPath();
+        ctx.moveTo(topLeftX, topY);
+        ctx.quadraticCurveTo(midLeftX, midY, botLeftX, botY);
+        ctx.lineTo(botRightX, botY);
+        ctx.quadraticCurveTo(midRightX, midY, topRightX, topY);
+        ctx.closePath();
+        ctx.fillStyle = isCriticalProximity
+          ? `rgba(255, 31, 31, ${0.12 + 0.08 * Math.sin(t * 8)})`
+          : isCautionProximity
+          ? "rgba(245, 158, 11, 0.08)"
+          : "rgba(16, 185, 129, 0.08)";
+        ctx.fill();
+
+        // Draw Left Guide Rail
+        ctx.strokeStyle = primaryRailGlow;
+        ctx.lineWidth = 10;
+        ctx.beginPath();
+        ctx.moveTo(topLeftX, topY);
+        ctx.quadraticCurveTo(midLeftX, midY, botLeftX, botY);
+        ctx.stroke();
+
+        ctx.strokeStyle = primaryRailColor;
+        ctx.lineWidth = 3.5;
+        ctx.beginPath();
+        ctx.moveTo(topLeftX, topY);
+        ctx.quadraticCurveTo(midLeftX, midY, botLeftX, botY);
+        ctx.stroke();
+
+        // Draw Right Guide Rail
+        ctx.strokeStyle = primaryRailGlow;
+        ctx.lineWidth = 10;
+        ctx.beginPath();
+        ctx.moveTo(topRightX, topY);
+        ctx.quadraticCurveTo(midRightX, midY, botRightX, botY);
+        ctx.stroke();
+
+        ctx.strokeStyle = primaryRailColor;
+        ctx.lineWidth = 3.5;
+        ctx.beginPath();
+        ctx.moveTo(topRightX, topY);
+        ctx.quadraticCurveTo(midRightX, midY, botRightX, botY);
+        ctx.stroke();
+
+        // ============================================================
+        // 2. AUTOMOTIVE DISTANCE GATES (1.5m, 1.0m, 0.5m, STOP 0.25m)
+        // ============================================================
+        const distanceGates = [
+          { dist: 1.5, progress: 0.18, label: "1.5m", color: "#10B981" },
+          { dist: 1.0, progress: 0.40, label: "1.0m", color: "#10B981" },
+          { dist: 0.5, progress: 0.70, label: "0.5m", color: "#F59E0B" },
+          { dist: 0.25, progress: 0.90, label: "STOP (0.25m)", color: "#FF1F1F" },
+        ];
+
+        distanceGates.forEach((gate) => {
+          const u = gate.progress;
+          // Quadratic Bézier evaluation: B(u) = (1-u)^2*P0 + 2(1-u)u*P1 + u^2*P2
+          const oneMinusU = 1 - u;
+          const gxL = oneMinusU * oneMinusU * topLeftX + 2 * oneMinusU * u * midLeftX + u * u * botLeftX;
+          const gyL = oneMinusU * oneMinusU * topY + 2 * oneMinusU * u * midY + u * u * botY;
+
+          const gxR = oneMinusU * oneMinusU * topRightX + 2 * oneMinusU * u * midRightX + u * u * botRightX;
+          const gyR = oneMinusU * oneMinusU * topY + 2 * oneMinusU * u * midY + u * u * botY;
+
+          const isBreached = distanceM <= gate.dist;
+          const gateColor = isBreached || isCriticalProximity ? "#FF1F1F" : gate.color;
+
+          // Crossbar connecting left and right rail
+          ctx.strokeStyle = gateColor;
+          ctx.lineWidth = isBreached ? 3 : 2;
+          ctx.beginPath();
+          ctx.moveTo(gxL, gyL);
+          ctx.lineTo(gxR, gyR);
+          ctx.stroke();
+
+          // Gate Hash Ticks
+          ctx.beginPath();
+          ctx.moveTo(gxL - 10, gyL);
+          ctx.lineTo(gxL + 6, gyL);
+          ctx.moveTo(gxR - 6, gyR);
+          ctx.lineTo(gxR + 10, gyR);
+          ctx.stroke();
+
+          // Distance Tag
+          ctx.fillStyle = gateColor;
+          ctx.font = "bold 9px monospace";
+          ctx.fillText(gate.label, gxR + 14, gyR + 3);
+        });
+
+        // ============================================================
+        // 3. DYNAMIC SHORTEST REROUTING PATH LINE
+        // ============================================================
+        // When approaching or navigating, calculates the next shortest collision-free path line!
+        const pathStartX = w / 2;
+        const pathStartY = h - 10;
+        const pathEndX = tagCenterX;
+        const pathEndY = tagCenterY + tagH / 2;
+        const pathMidX = (pathStartX + pathEndX) / 2 + (isCriticalProximity ? (lateralOffsetM * 120) : 0);
+        const pathMidY = (pathStartY + pathEndY) / 2;
+
+        if (isCriticalProximity) {
+          // In critical proximity, draw the dynamic recalculated shortest recovery spline in neon cyan/white!
+          ctx.strokeStyle = "rgba(6, 182, 212, 0.4)";
+          ctx.lineWidth = 8;
+          ctx.beginPath();
+          ctx.moveTo(pathStartX, pathStartY);
+          ctx.quadraticCurveTo(pathMidX + 25, pathMidY, pathEndX, pathEndY);
+          ctx.stroke();
+
+          // Recalculated Shortest Path Line
+          ctx.strokeStyle = "#06B6D4";
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.moveTo(pathStartX, pathStartY);
+          ctx.quadraticCurveTo(pathMidX + 25, pathMidY, pathEndX, pathEndY);
+          ctx.stroke();
+
+          // Flowing directional pulse along the shortest reroute
+          ctx.strokeStyle = "#FFFFFF";
+          ctx.lineWidth = 2;
+          ctx.setLineDash([8, 8]);
+          ctx.lineDashOffset = -t * 22;
+          ctx.beginPath();
+          ctx.moveTo(pathStartX, pathStartY);
+          ctx.quadraticCurveTo(pathMidX + 25, pathMidY, pathEndX, pathEndY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Waypoint target bead on dock
+          ctx.fillStyle = "#06B6D4";
+          ctx.beginPath();
+          ctx.arc(pathEndX, pathEndY, 5, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Reroute Path Tag
+          ctx.fillStyle = "#06B6D4";
+          ctx.font = "bold 9.5px monospace";
+          ctx.fillText("NEXT SHORTEST DOCK PATH [RE-MAPPED]", pathMidX + 32, pathMidY - 6);
+        } else {
+          // Standard center trajectory line
+          ctx.strokeStyle = primaryRailColor;
+          ctx.lineWidth = 2;
+          ctx.setLineDash([6, 6]);
+          ctx.beginPath();
+          ctx.moveTo(pathStartX, pathStartY);
+          ctx.quadraticCurveTo(pathMidX, pathMidY, pathEndX, pathEndY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
+        // ============================================================
+        // 4. AUTOMOTIVE PROXIMITY ALERT BANNER (< 0.45m WARNING)
+        // ============================================================
+        if (isCriticalProximity) {
+          const bannerW = 340;
+          const bannerH = 36;
+          const bannerX = w / 2 - bannerW / 2;
+          const bannerY = 16;
+
+          // Pulsing Red Warning Banner
+          ctx.fillStyle = "rgba(220, 38, 38, 0.95)";
+          ctx.strokeStyle = "#FFFFFF";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.roundRect(bannerX, bannerY, bannerW, bannerH, 8);
+          ctx.fill();
+          ctx.stroke();
+
+          // Warning hazard stripes / text
+          ctx.fillStyle = "#FFFFFF";
+          ctx.font = "bold 11px system-ui, -apple-system, sans-serif";
+          ctx.fillText("⚠ PROXIMITY ALERT: DOCK APPROACH < 0.45m", bannerX + 16, bannerY + 22);
+
+          // Flashing distance readout
+          ctx.font = "bold 10px monospace";
+          ctx.fillStyle = "#FEF08A";
+          ctx.fillText(`DIST: ${distanceM.toFixed(2)}m`, bannerX + 265, bannerY + 22);
+
+          // Corner Proximity Hazard Brackets (like ultrasonic park assist sensors)
+          ctx.strokeStyle = `rgba(255, 31, 31, ${0.6 + 0.4 * Math.sin(t * 10)})`;
+          ctx.lineWidth = 3;
+          // Top Left
+          ctx.beginPath();
+          ctx.moveTo(20, 45);
+          ctx.lineTo(20, 20);
+          ctx.lineTo(45, 20);
+          ctx.stroke();
+          // Top Right
+          ctx.beginPath();
+          ctx.moveTo(w - 45, 20);
+          ctx.lineTo(w - 20, 20);
+          ctx.lineTo(w - 20, 45);
+          ctx.stroke();
+          // Bottom Left
+          ctx.beginPath();
+          ctx.moveTo(20, h - 45);
+          ctx.lineTo(20, h - 20);
+          ctx.lineTo(45, h - 20);
+          ctx.stroke();
+          // Bottom Right
+          ctx.beginPath();
+          ctx.moveTo(w - 45, h - 20);
+          ctx.lineTo(w - 20, h - 20);
+          ctx.lineTo(w - 20, h - 45);
+          ctx.stroke();
+        }
+
+        // ============================================================
+        // 5. STATION APRILTAG DOCKING MARKER & 3D AXES
+        // ============================================================
+        const isAligned = distanceM <= 0.18;
+        ctx.strokeStyle = isAligned ? "#10B981" : isCriticalProximity ? "#FF1F1F" : "#8C6D31";
         ctx.lineWidth = 2.5;
         ctx.strokeRect(tagX, tagY, tagW, tagH);
 
         const markerX = tagX + tagW / 2;
         const markerY = tagY + tagH / 2;
 
-        // 3D RGB Coordinates Axes (X Red, Y Green, Z Blue)
-        ctx.strokeStyle = "#ef4444"; // X Axis
+        // 3D Coordinates Axes
+        ctx.strokeStyle = "#FF3820"; // X Axis
         ctx.lineWidth = 2.5;
         ctx.beginPath();
         ctx.moveTo(markerX, markerY);
         ctx.lineTo(markerX + tagW * 0.65, markerY);
         ctx.stroke();
 
-        ctx.strokeStyle = "#10b981"; // Y Axis
+        ctx.strokeStyle = "#10B981"; // Y Axis
         ctx.lineWidth = 2.5;
         ctx.beginPath();
         ctx.moveTo(markerX, markerY);
         ctx.lineTo(markerX, markerY - tagH * 0.65);
         ctx.stroke();
 
-        ctx.strokeStyle = "#3b82f6"; // Z Axis
+        ctx.strokeStyle = "#8C6D31"; // Z Axis
         ctx.lineWidth = 2.5;
         ctx.beginPath();
         ctx.moveTo(markerX, markerY);
@@ -347,34 +570,54 @@ export default function RoboticCameraHUD({
         ctx.stroke();
 
         // Target Tag Label
-        ctx.fillStyle = "#059669";
-        ctx.font = "bold 10px monospace";
-        ctx.fillText(`BAY_01 [DIST: ${distanceM.toFixed(2)}m]`, tagX - 10, tagY - 8);
-
-        // 5. HUD Top Status Overlay
-        ctx.fillStyle = "rgba(15, 23, 42, 0.75)";
-        ctx.fillRect(12, 12, 250, 48);
-        ctx.fillStyle = "#ffffff";
-        ctx.font = "bold 10px monospace";
+        ctx.fillStyle = isAligned ? "#10B981" : isCriticalProximity ? "#FF1F1F" : "#1A1715";
+        ctx.font = "bold 10px system-ui, -apple-system, sans-serif";
         ctx.fillText(
-          `FEED: ${
-            isPhoneConnected
-              ? "LIVE MOBILE PHONE EYE [CONNECTED]"
+          `DOCK BAY 01 [${isAligned ? "LOCKED & ALIGNED" : isCriticalProximity ? "CRITICAL PROXIMITY" : `DIST: ${distanceM.toFixed(2)}m`}]`,
+          tagX - 10,
+          tagY - 8
+        );
+
+        // ============================================================
+        // 6. GILDED TELEMETRY PLAQUE
+        // ============================================================
+        ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+        ctx.fillRect(12, 12, 280, 52);
+        ctx.strokeStyle = isCriticalProximity ? "#FF1F1F" : "#C5A059";
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(12, 12, 280, 52);
+
+        // Vermillion Accent Strip on Left
+        ctx.fillStyle = isCriticalProximity ? "#FF1F1F" : "#FF3820";
+        ctx.fillRect(12, 12, 4, 52);
+
+        ctx.fillStyle = "#1A1715";
+        ctx.font = "bold 11px system-ui, -apple-system, sans-serif";
+        ctx.fillText(
+          `${
+            effectiveIsPhoneConnected
+              ? "PHONE CAMERA [LIVE GPS SYNC]"
               : isUsingStreamUrl
-              ? "IP PHONE STREAM"
+              ? "IP CAMERA STREAM"
               : isCameraActive
-              ? "USB / WEBCAM OPTICS"
-              : "SYNTHETIC HUD"
+              ? "WEBCAM [LIVE]"
+              : "SIMULATED ENVIRONMENT"
           }`,
-          20,
+          24,
           28
         );
-        ctx.fillStyle = "#38bdf8";
+        ctx.fillStyle = isCriticalProximity ? "#DC2626" : "#78716C";
+        ctx.font = "bold 10px monospace";
         ctx.fillText(
-          `DIST: ${distanceM.toFixed(2)}m | LAT: ${(lateralOffsetM * 100).toFixed(1)}cm`,
-          20,
+          `Dist: ${distanceM.toFixed(2)}m | Off: ${(lateralOffsetM * 100).toFixed(1)}cm | Hdg: ${headingErrorDeg}°`,
+          24,
           44
         );
+        if (effectiveIsPhoneConnected && mobileGpsPose?.lat) {
+          ctx.fillStyle = "#8C6D31";
+          ctx.font = "8.5px monospace";
+          ctx.fillText(`GPS: ${mobileGpsPose.lat.toFixed(4)}°, ${mobileGpsPose.lng.toFixed(4)}°`, 24, 58);
+        }
       }
 
       animRef.current = requestAnimationFrame(renderOverlay);
@@ -385,114 +628,93 @@ export default function RoboticCameraHUD({
     return () => {
       if (animRef.current) cancelAnimationFrame(animRef.current);
     };
-  }, [isCameraActive, isUsingStreamUrl, showOverlays, distanceM, lateralOffsetM, headingErrorDeg]);
+  }, [
+    isCameraActive,
+    isUsingStreamUrl,
+    showOverlays,
+    distanceM,
+    lateralOffsetM,
+    headingErrorDeg,
+    effectiveIsPhoneConnected,
+    effectivePhoneFrame,
+    mobileGpsPose,
+  ]);
 
   return (
-    <div className="flex flex-col h-full rounded-2xl bg-white border border-slate-200/90 shadow-sm overflow-hidden">
-      {/* Top Camera Controls Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-slate-100 bg-slate-50/60">
+    <div className="flex flex-col h-full frame-gilded overflow-hidden shadow-xl bg-white">
+      {/* Top Camera Controls Bar - Clean, Clear Modern Typography */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-[#C5A059]/30 bg-[#FAF7F2]">
         <div className="flex items-center gap-2">
           <div
             className={`w-2.5 h-2.5 rounded-full ${
-              isCameraActive ? "bg-emerald-500 animate-pulse" : "bg-blue-600"
+              isCameraActive
+                ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse"
+                : "bg-[#FF3820] shadow-[0_0_8px_rgba(255,56,32,0.8)]"
             }`}
           />
-          <span className="text-xs font-bold text-slate-800 tracking-wide uppercase font-mono">
-            Forward Robotic Vision HUD
+          <span className="text-xs font-sans font-bold text-[#1A1715] tracking-wide">
+            Robotic Vision Camera
           </span>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Camera Selection Dropdown (if multiple cameras / USB phone webcam found) */}
-          {availableDevices.length > 0 && (
-            <select
-              value={selectedDeviceId}
-              onChange={(e) => {
-                setSelectedDeviceId(e.target.value);
-                if (isCameraActive && !isUsingStreamUrl) {
-                  startCamera(e.target.value);
-                }
-              }}
-              className="text-[11px] font-medium py-1 px-2.5 rounded-lg bg-white border border-slate-200 text-slate-700 outline-none hover:border-slate-300"
-              title="Select Camera Device"
-            >
-              {availableDevices.map((dev, idx) => (
-                <option key={dev.deviceId || idx} value={dev.deviceId}>
-                  {dev.label || `Camera ${idx + 1}`}
-                </option>
-              ))}
-            </select>
-          )}
-
-          {/* Toggle Overlays */}
-          <button
-            type="button"
-            onClick={() => setShowOverlays(!showOverlays)}
-            className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1.5 ${
-              showOverlays
-                ? "bg-blue-50 border-blue-200 text-blue-700"
-                : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5" />
-            <span>Overlays</span>
-          </button>
-
-          {/* Flip Camera (Front/Back) */}
-          {isCameraActive && !isUsingStreamUrl && (
-            <button
-              type="button"
-              onClick={flipCamera}
-              className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors"
-              title="Flip Camera (Front/Back)"
-            >
-              <FlipHorizontal className="w-4 h-4" />
-            </button>
-          )}
-
-          {/* USB / Mobile Connection Status & Trigger */}
+        <div className="flex items-center gap-2">
+          {/* Mobile Optical Link */}
           {isPhoneConnected ? (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-mono font-semibold">
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-500/40 text-emerald-800 text-xs font-serif font-semibold">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>📱 Phone Eye Connected</span>
+              <span>Phone Link Active</span>
             </div>
           ) : (
             <button
               type="button"
               onClick={() => setShowUsbGuide(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100 text-xs font-semibold transition-colors"
-              title="Connect your mobile phone camera"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-[#C5A059]/40 text-[#8C6D31] hover:text-[#1A1715] hover:border-[#C5A059] text-xs font-serif font-semibold transition-colors shadow-sm"
+              title="Connect mobile phone camera"
             >
-              <Smartphone className="w-3.5 h-3.5" />
+              <Smartphone className="w-3.5 h-3.5 text-[#FF3820]" />
               <span>Connect Phone</span>
             </button>
           )}
 
-          {/* Open Camera / Switch Stream Button */}
+          {/* Primary Camera Toggle (Live vs Sim) */}
           {!isCameraActive ? (
             <button
               type="button"
               onClick={() => startCamera()}
-              className="btn-primary px-3 py-1.5 text-xs gap-1.5 shadow-sm"
+              className="btn-vermillion px-3.5 py-1.5 text-xs gap-1.5 font-serif font-bold tracking-wider uppercase shadow-sm"
             >
               <Camera className="w-3.5 h-3.5" />
-              <span>Open Webcam</span>
+              <span>Live Camera</span>
             </button>
           ) : (
             <button
               type="button"
               onClick={stopCamera}
-              className="px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-200 transition-colors flex items-center gap-1.5"
+              className="px-3.5 py-1.5 rounded-full bg-white border border-[#C5A059]/60 text-xs font-serif font-bold text-[#1A1715] hover:bg-[#FAF7F2] transition-colors flex items-center gap-1.5 shadow-sm"
             >
-              <CameraOff className="w-3.5 h-3.5" />
-              <span>Use Simulation</span>
+              <CameraOff className="w-3.5 h-3.5 text-[#8C6D31]" />
+              <span>Simulation</span>
             </button>
           )}
+
+          {/* Minimalist Reticle Toggle */}
+          <button
+            type="button"
+            onClick={() => setShowOverlays(!showOverlays)}
+            className={`p-1.5 rounded-full border transition-colors ${
+              showOverlays
+                ? "bg-[#FF3820]/10 border-[#FF3820]/40 text-[#FF3820]"
+                : "bg-white border-[#C5A059]/30 text-[#8C6D31] hover:bg-[#FAF7F2]"
+            }`}
+            title="Toggle AR Reticles"
+          >
+            <Layers className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 
       {/* Main Viewport Container */}
-      <div className="relative flex-1 min-h-[300px] w-full bg-slate-900 overflow-hidden flex items-center justify-center">
+      <div className="relative flex-1 min-h-[300px] w-full bg-[#FAF7F2] overflow-hidden flex items-center justify-center">
         {/* Real Live HTML5 Video Element from Phone / Webcam */}
         <video
           ref={videoRef}
@@ -528,66 +750,50 @@ export default function RoboticCameraHUD({
 
         {/* Camera Warning Banner */}
         {cameraError && (
-          <div className="absolute top-4 inset-x-4 z-20 p-3 rounded-xl bg-slate-900/90 border border-slate-700 text-white text-xs text-center backdrop-blur-md shadow-lg flex flex-col items-center gap-2">
+          <div className="absolute top-4 inset-x-4 z-20 p-3 rounded-xl bg-white/95 border-2 border-[#FF3820]/40 text-[#1A1715] text-xs text-center backdrop-blur-md shadow-xl flex flex-col items-center gap-2">
             <div>{cameraError}</div>
             <button
               type="button"
               onClick={() => setShowUsbGuide(true)}
-              className="btn-primary px-3 py-1 text-[11px] gap-1.5"
+              className="btn-vermillion px-3 py-1 text-[11px] gap-1.5"
             >
               <Smartphone className="w-3 h-3" />
               <span>Open USB & Phone Connection Guide</span>
             </button>
           </div>
         )}
-
-        {/* Live Indicator Stamp */}
-        <div className="absolute bottom-3 right-3 z-20 flex items-center gap-2 px-3 py-1 rounded-full bg-black/60 backdrop-blur-sm text-white text-[11px] font-mono">
-          <span
-            className={`w-2 h-2 rounded-full ${
-              isCameraActive ? "bg-emerald-400 animate-pulse" : "bg-blue-400"
-            }`}
-          />
-          <span>
-            {isUsingStreamUrl
-              ? "IP PHONE STREAM"
-              : isCameraActive
-              ? "LIVE OPTICS ACTIVE"
-              : "SYNTHETIC HUD"}
-          </span>
-        </div>
       </div>
 
       {/* USB & Phone Camera Connection Guide Modal */}
       {showUsbGuide && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl border border-slate-200">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl border-2 border-[#C5A059]/40 text-[#1A1715]">
+            <div className="flex items-center justify-between pb-3 border-b border-[#C5A059]/30 mb-4">
               <div className="flex items-center gap-2">
-                <Smartphone className="w-5 h-5 text-blue-600" />
-                <h3 className="text-base font-bold text-slate-900">
+                <Smartphone className="w-5 h-5 text-[#FF3820]" />
+                <h3 className="text-base font-serif font-bold text-[#1A1715]">
                   Connect Phone Camera (USB or Wi-Fi)
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowUsbGuide(false)}
-                className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center text-xs"
+                className="w-7 h-7 rounded-full bg-[#FAF7F2] hover:bg-[#F4EFE6] border border-[#C5A059]/40 text-[#1A1715] flex items-center justify-center text-xs transition-colors"
               >
                 ✕
               </button>
             </div>
 
-            <div className="space-y-4 text-xs text-slate-600">
+            <div className="space-y-4 text-xs text-[#78716C]">
               {/* Method 1: Android USB Webcam */}
-              <div className="p-3.5 rounded-2xl bg-blue-50/60 border border-blue-100">
-                <div className="font-bold text-blue-900 text-sm mb-1 flex items-center gap-1.5">
-                  <span className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px]">
+              <div className="p-3.5 rounded-2xl bg-[#FAF7F2] border border-[#C5A059]/40">
+                <div className="font-serif font-bold text-[#1A1715] text-sm mb-1 flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-full bg-[#FF3820] text-white flex items-center justify-center text-[10px] font-bold shadow-sm">
                     1
                   </span>
                   Android USB Webcam Mode (Zero-Install)
                 </div>
-                <ol className="list-decimal list-inside space-y-1 text-slate-700 pl-1 mt-2">
+                <ol className="list-decimal list-inside space-y-1 text-[#78716C] pl-1 mt-2 font-serif">
                   <li>Plug your phone into your PC via the USB cable.</li>
                   <li>
                     On your phone, swipe down notifications and tap{" "}
@@ -607,7 +813,7 @@ export default function RoboticCameraHUD({
                     startCamera();
                     setShowUsbGuide(false);
                   }}
-                  className="btn-primary mt-3 px-3 py-1.5 text-xs gap-1.5 shadow-sm"
+                  className="btn-vermillion mt-3 px-3.5 py-1.5 text-xs gap-1.5 shadow-sm uppercase tracking-wider font-bold"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   <span>Refresh & Connect Webcam</span>
@@ -615,33 +821,33 @@ export default function RoboticCameraHUD({
               </div>
 
               {/* Method 2: Open Directly on Phone via Local Link */}
-              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
-                <div className="font-bold text-slate-900 text-sm mb-1 flex items-center gap-1.5">
-                  <span className="w-5 h-5 rounded-full bg-slate-700 text-white flex items-center justify-center text-[10px]">
+              <div className="p-3.5 rounded-2xl bg-[#FAF7F2] border border-[#C5A059]/30">
+                <div className="font-serif font-bold text-[#1A1715] text-sm mb-1 flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-full bg-[#8C6D31] text-white flex items-center justify-center text-[10px] font-bold">
                     2
                   </span>
                   Open on Phone via Wi-Fi / USB Tethering
                 </div>
-                <p className="mt-1 text-slate-600">
+                <p className="mt-1 text-[#78716C]">
                   Open this link in Chrome on your phone (connected to same Wi-Fi or USB tethering):
                 </p>
-                <div className="mt-2 p-2.5 rounded-xl bg-white border border-slate-200 font-mono text-blue-600 font-bold text-xs flex items-center justify-between select-all">
+                <div className="mt-2 p-2.5 rounded-xl bg-white border border-[#C5A059]/40 font-mono text-[#FF3820] font-bold text-xs flex items-center justify-between select-all">
                   <span>http://192.168.76.15:3000/camera</span>
                 </div>
-                <p className="text-[10px] text-slate-500 mt-1.5 leading-relaxed">
+                <p className="text-[10px] text-[#8C6D31] mt-1.5 leading-relaxed font-serif">
                   Your phone will instantly open its back camera and transmit live video straight into this Forward Robotic Vision HUD on your PC!
                 </p>
               </div>
 
               {/* Method 3: IP Webcam Stream URL */}
-              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
-                <div className="font-bold text-slate-900 text-sm mb-1 flex items-center gap-1.5">
-                  <span className="w-5 h-5 rounded-full bg-slate-700 text-white flex items-center justify-center text-[10px]">
+              <div className="p-3.5 rounded-2xl bg-[#FAF7F2] border border-[#C5A059]/30">
+                <div className="font-serif font-bold text-[#1A1715] text-sm mb-1 flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-full bg-[#8C6D31] text-white flex items-center justify-center text-[10px] font-bold">
                     3
                   </span>
                   IP Camera / DroidCam Stream URL
                 </div>
-                <p className="mt-1 text-slate-600">
+                <p className="mt-1 text-[#78716C]">
                   If you run an IP camera app (e.g. DroidCam or IP Webcam), enter the stream URL:
                 </p>
                 <form onSubmit={handleConnectStreamUrl} className="flex gap-2 mt-2">
@@ -650,9 +856,9 @@ export default function RoboticCameraHUD({
                     value={streamUrl}
                     onChange={(e) => setStreamUrl(e.target.value)}
                     placeholder="http://192.168.137.X:8080/video"
-                    className="flex-1 input-light py-1.5 text-xs font-mono"
+                    className="flex-1 input-gallery py-1.5 text-xs font-mono"
                   />
-                  <button type="submit" className="btn-primary px-3 py-1.5 text-xs whitespace-nowrap">
+                  <button type="submit" className="btn-vermillion px-3.5 py-1.5 text-xs whitespace-nowrap uppercase font-bold">
                     Connect
                   </button>
                 </form>
@@ -663,7 +869,7 @@ export default function RoboticCameraHUD({
               <button
                 type="button"
                 onClick={() => setShowUsbGuide(false)}
-                className="px-4 py-2 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold"
+                className="px-4 py-2 rounded-full bg-[#FAF7F2] border border-[#C5A059]/50 hover:bg-[#F4EFE6] text-[#1A1715] text-xs font-serif font-bold transition-colors shadow-sm"
               >
                 Close Guide
               </button>
