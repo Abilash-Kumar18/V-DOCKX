@@ -4,6 +4,7 @@ REST endpoints for mission control and high-frequency WebSocket telemetry stream
 """
 
 import asyncio
+import glob
 import json
 import math
 import os
@@ -184,7 +185,7 @@ def emergency_stop():
 @app.post("/api/reset")
 def reset_system():
     safety.release_estop()
-    fsm.state = DockingState.IDLE
+    fsm.reset()
     robot.reset(x=0.0, y=0.15, theta=-0.10)
     return {"message": "System reset to initial state", "state": fsm.state.value}
 
@@ -192,6 +193,51 @@ def reset_system():
 @app.get("/api/config")
 def get_config():
     return load_config()
+
+
+@app.get("/api/analytics")
+def get_analytics():
+    """Returns aggregated evaluation metrics across all runs in results/."""
+    try:
+        from scripts.evaluate_hybrid_runs import evaluate_logs
+        summary = evaluate_logs("results")
+        return summary
+    except Exception as e:
+        return {"error": str(e), "total_runs": 0}
+
+
+@app.get("/api/runs")
+def get_runs():
+    """Returns the most recent docking runs from results/."""
+    runs = []
+    log_files = glob.glob(os.path.join("results", "*.jsonl"))
+    for file_path in sorted(log_files, key=os.path.getmtime, reverse=True)[:15]:
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                lines = [line.strip() for line in f if line.strip()]
+                if not lines:
+                    continue
+                first = json.loads(lines[0])
+                last = json.loads(lines[-1])
+                duration = round(max(0.0, last.get("timestamp", 0) - first.get("timestamp", 0)), 2)
+                lat_err_cm = round(abs(last.get("lateral_offset_m", 0.0)) * 100, 2)
+                head_err_deg = round(abs(math.degrees(last.get("heading_error_rad", 0.0))), 2)
+                state = last.get("state", "UNKNOWN")
+                success = (state in ("DOCKED", "VISUALLY_ALIGNED") or (lat_err_cm <= 3.0 and head_err_deg <= 5.0))
+                runs.append({
+                    "run_id": os.path.basename(file_path).replace(".jsonl", ""),
+                    "timestamp": last.get("timestamp", 0),
+                    "duration_s": duration,
+                    "final_state": state,
+                    "success": success,
+                    "lateral_error_cm": lat_err_cm,
+                    "heading_error_deg": head_err_deg,
+                    "distance_cm": round(last.get("distance_m", 0.12) * 100, 1),
+                    "file_name": os.path.basename(file_path),
+                })
+        except Exception:
+            continue
+    return runs
 
 
 class ObstacleInjectRequest(BaseModel):
@@ -221,7 +267,17 @@ async def simulation_loop():
     while True:
         now = time.time()
 
+        # Dynamically update synthetic line tracking based on robot pose relative to guide line (y=0)
+        synthetic_line.centroid_error_norm = max(-1.0, min(1.0, round(robot.y / 0.15, 3)))
+        synthetic_line.angle_error_rad = max(-1.0, min(1.0, round(robot.theta, 3)))
+        synthetic_line.timestamp = now
+
         # Update synthetic target perception based on simulated robot pose
+        dx = 1.5 - robot.x
+        dy = -robot.y
+        dist = math.sqrt(dx * dx + dy * dy)
+        heading_err = -robot.theta
+
         if fsm.state in (
             DockingState.STATION_ZONE_APPROACH,
             DockingState.DOCKING_TARGET_ACQUIRE,
@@ -230,20 +286,18 @@ async def simulation_loop():
             DockingState.VERIFY,
             DockingState.DOCKED,
         ):
-            # Target is at x=1.5m, y=0.0m on charging plane
-            dx = 1.5 - robot.x
-            dy = -robot.y
-            dist = math.sqrt(dx * dx + dy * dy)
-            heading_err = -robot.theta
-
             synthetic_target.detected = True
             synthetic_target.distance_m = round(dist, 4)
-            synthetic_target.lateral_offset_m = round(dy, 4)
-            synthetic_target.heading_error_rad = round(heading_err, 4)
+            synthetic_target.lateral_offset_m = round(robot.y, 4)
+            synthetic_target.heading_error_rad = round(robot.theta, 4)
             synthetic_target.confidence = 0.90
             synthetic_target.timestamp = now
         else:
             synthetic_target.detected = False
+            synthetic_target.distance_m = round(dist, 4)
+            synthetic_target.lateral_offset_m = round(robot.y, 4)
+            synthetic_target.heading_error_rad = round(robot.theta, 4)
+            synthetic_target.timestamp = now
 
         # Execute FSM cycle
         state, cmd = fsm.update(
@@ -261,15 +315,21 @@ async def simulation_loop():
 
         # Calculate verification dwell progress percentage
         dwell_pct = 0.0
+        dwell_countdown = 0.0
         if fsm.dwell_start_time is not None:
-            dwell_pct = min(100.0, round(((now - fsm.dwell_start_time) / fsm.verification_dwell_s) * 100.0, 1))
+            elapsed = now - fsm.dwell_start_time
+            dwell_pct = min(100.0, round((elapsed / fsm.verification_dwell_s) * 100.0, 1))
+            dwell_countdown = round(max(0.0, fsm.verification_dwell_s - elapsed), 2)
 
-        # Broadcast telemetry packet
+        # Broadcast rich telemetry packet (supports nested and direct schemas)
         telemetry_pkt = {
             "timestamp": now,
             "state": state.value,
+            "fsm_state": state.value,
             "linear_velocity_mps": cmd.linear_velocity_mps,
+            "v": cmd.linear_velocity_mps,
             "angular_velocity_rps": cmd.angular_velocity_rps,
+            "w": cmd.angular_velocity_rps,
             "command_reason": cmd.reason,
             "robot_pose": robot.get_telemetry_dict(),
             "target": {
@@ -278,12 +338,18 @@ async def simulation_loop():
                 "lateral_offset_m": synthetic_target.lateral_offset_m,
                 "heading_error_rad": synthetic_target.heading_error_rad,
             },
+            "ed": synthetic_target.distance_m,
+            "ey": synthetic_target.lateral_offset_m,
+            "etheta": synthetic_target.heading_error_rad,
             "obstacle": {
                 "corridor_blocked": synthetic_obstacle.corridor_blocked,
                 "stop_count": safety.obstacle_stop_count,
             },
+            "corridor_blocked": synthetic_obstacle.corridor_blocked,
             "dwell_progress_pct": dwell_pct,
+            "dwell_countdown": dwell_countdown,
             "estop_active": safety.estop_active,
+            "safety_halt": safety.estop_active or synthetic_obstacle.corridor_blocked,
         }
 
         await manager.broadcast(telemetry_pkt)
