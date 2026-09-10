@@ -1,0 +1,14 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}",
+    "${workspaceFolder}/docking",
+    "${workspaceFolder}/.venv/Lib/site-packages",
+    "e:/Hack/.venv/Lib/site-packages",
+    "C:/Users/DHARANI/AppData/Local/Programs/Python/Python311/Lib/site-packages"
+  ],
+  "python.pyrefly.typeCheckingMode": "off",
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportMissingImports": "none"
+  }
+}

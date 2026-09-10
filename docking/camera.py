@@ -8,8 +8,8 @@ import os
 import threading
 import time
 from typing import Any, Dict, Optional, Tuple, Union
-import cv2
-import numpy as np
+import cv2  # type: ignore
+import numpy as np  # type: ignore
 import yaml
 
 
@@ -26,6 +26,7 @@ class SyntheticFrameGenerator:
 
     def generate(
         self,
+        draw_line: bool = True,
         line_offset_px: int = 0,
         line_angle_deg: float = 0.0,
         draw_marker: bool = False,
@@ -42,14 +43,15 @@ class SyntheticFrameGenerator:
         frame = np.full((self.height, self.width, 3), 140, dtype=np.uint8)
 
         # Draw a yellow floor line (BGR: [0, 215, 255])
-        # Centered at (width // 2 + line_offset_px)
-        center_x = self.width // 2 + line_offset_px
-        rad = np.radians(line_angle_deg)
-        dx = int(np.tan(rad) * (self.height // 2))
+        if draw_line:
+            center_x = self.width // 2 + line_offset_px
+            rad = np.radians(line_angle_deg)
+            dy = int(self.height * 0.55)
+            dx = int(np.tan(rad) * (dy / 2.0))
 
-        pt_bottom = (center_x - dx, self.height)
-        pt_top = (center_x + dx, int(self.height * 0.45))
-        cv2.line(frame, pt_bottom, pt_top, (0, 215, 255), 24)
+            pt_bottom = (center_x - dx, self.height)
+            pt_top = (center_x + dx, self.height - dy)
+            cv2.line(frame, pt_bottom, pt_top, (0, 215, 255), 24)
 
         # Draw ArUco marker if requested
         if draw_marker:

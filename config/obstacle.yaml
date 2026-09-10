@@ -26,6 +26,7 @@ ai_detector:
     - "person"
     - "bottle"
     - "chair"
+    - "sofa"
     - "box"
     - "dog"
     - "cat"
