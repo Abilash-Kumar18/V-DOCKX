@@ -1,0 +1,36 @@
+# V-DOCKX Floor Line & Camera Configuration (Member 1)
+
+camera:
+  device_index: 0
+  width: 640
+  height: 480
+  fps: 30
+  fx: 650.0
+  fy: 650.0
+  cx: 320.0
+  cy: 240.0
+  dist_coeffs: [0.0, 0.0, 0.0, 0.0, 0.0]
+
+line_detection:
+  crop_top_ratio: 0.50
+  crop_bottom_ratio: 1.00
+  crop_left_ratio: 0.00
+  crop_right_ratio: 1.00
+  # Dual HSV color bands: yellow path tape and bright white path tape
+  hsv_yellow_lower: [15, 70, 70]
+  hsv_yellow_upper: [38, 255, 255]
+  hsv_white_lower: [0, 0, 225]
+  hsv_white_upper: [180, 35, 255]
+  clahe_clip_limit: 2.0
+  clahe_grid_size: [8, 8]
+  morph_kernel_size: 5
+  min_contour_area: 300
+  max_contour_area: 80000
+  centroid_deadband_norm: 0.02
+  angle_deadband_rad: 0.03
+
+station_zone:
+  transverse_bar_aspect_ratio_min: 2.8
+  transverse_bar_width_ratio_min: 0.45
+  tag_trigger_max_y_ratio: 0.65
+  debounce_frames: 2
