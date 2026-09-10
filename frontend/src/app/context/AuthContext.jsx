@@ -105,11 +105,8 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const demoLogin = async (role = "operator") => {
-    if (role === "admin") {
-      return await login("admin@vdockx.ai", "admin2026#");
-    }
-    return await login("operator@vdockx.ai", "docking2026#");
+  const demoLogin = async () => {
+    return await login("innovix", "innovix@123");
   };
 
   const clearError = () => setError(null);
