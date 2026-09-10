@@ -12,7 +12,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "V-DOCKX | Vision-Guided Autonomous Docking & Telemetry",
+  title: "V-DOCKX | Autonomous Docking & Telemetry Control",
   description: "Next-generation autonomous robot docking, vision-guided alignment, safety corridor monitoring, and telemetry cockpit.",
 };
 
@@ -20,9 +20,9 @@ export default function RootLayout({ children }) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-[#0c0e11] text-[#f0f2f5]">
+      <body className="min-h-full flex flex-col bg-[#f8fafc] text-[#0f172a]">
         {children}
       </body>
     </html>

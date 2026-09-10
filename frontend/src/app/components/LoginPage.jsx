@@ -111,50 +111,50 @@ export default function LoginPage() {
 
   // Apple SVG
   const AppleIcon = () => (
-    <svg className="w-4 h-4 mr-2 fill-current" viewBox="0 0 24 24">
+    <svg className="w-4 h-4 mr-2 fill-[#0f172a]" viewBox="0 0 24 24">
       <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.87c.62-.75 1.04-1.8 1.01-2.87-.96.04-2.13.64-2.79 1.41-.58.68-1.1 1.74-0.96 2.79 1.07.08 2.12-.58 2.74-1.33z" />
     </svg>
   );
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center p-4 sm:p-6 bg-[#080a0d] text-[#f0f2f5] overflow-hidden">
-      {/* 1. Creative Animated Grid & Line Pulses Background */}
+    <div className="relative min-h-screen flex items-center justify-center p-4 sm:p-6 bg-[#f8fafc] text-[#0f172a] overflow-hidden">
+      {/* 1. Light Mode Animated Cybernetic Grid Background */}
       <AnimatedGridBackground />
 
-      {/* 2. Focused, Clean Login Card */}
-      <div className="relative z-10 w-full max-w-[390px] rounded-[38px] bg-[#0e1116]/95 border border-[#1e232d] shadow-2xl p-6 sm:p-7 backdrop-blur-md overflow-hidden">
-        {/* Subtle top micro-dots overlay */}
-        <div className="absolute top-0 inset-x-0 h-36 bg-dot-matrix-green opacity-40 pointer-events-none" />
+      {/* 2. Professional Light Mode Card */}
+      <div className="relative z-10 w-full max-w-[400px] rounded-[36px] bg-white/95 border border-slate-200/90 shadow-[0_20px_60px_-15px_rgba(15,23,42,0.09),0_0_1px_1px_rgba(15,23,42,0.03)] p-6 sm:p-8 backdrop-blur-md overflow-hidden">
+        {/* Subtle top light dot-matrix pattern */}
+        <div className="absolute top-0 inset-x-0 h-36 bg-dot-matrix-blue opacity-50 pointer-events-none" />
 
-        {/* Card Top Bar (Back Arrow on Left, Subtle Spinner Indicator on Right) */}
+        {/* Card Top Action Bar */}
         <div className="relative flex items-center justify-between mb-3">
           <button
             type="button"
             onClick={() => handleSwitchMode("signin")}
             aria-label="Back to Sign in"
-            className="w-8 h-8 rounded-full bg-[#151921] border border-[#242b36] flex items-center justify-center text-zinc-400 hover:text-white hover:bg-[#1c222c] transition-colors"
+            className="w-8 h-8 rounded-full bg-slate-100/90 border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-900 hover:bg-slate-200 transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
 
-          <div className="w-8 h-8 rounded-full bg-[#151921] border border-[#242b36] flex items-center justify-center text-zinc-400">
-            <Disc3 className="w-4 h-4 text-[#cde655] animate-spin-slow opacity-80" />
+          <div className="w-8 h-8 rounded-full bg-blue-50 border border-blue-200/80 flex items-center justify-center text-blue-600">
+            <Disc3 className="w-4 h-4 animate-spin-slow" />
           </div>
         </div>
 
-        {/* 3D Organic Moss Sphere */}
+        {/* Pearlescent 3D Crystalline Sphere */}
         <div className="relative flex justify-center mb-3">
-          <OrganicSphere size={92} />
+          <OrganicSphere size={94} />
         </div>
 
         {/* Title & Subtitle */}
         <div className="relative text-center mb-6">
-          <h1 className="text-2xl font-bold tracking-tight text-white mb-1.5">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 mb-1.5">
             {mode === "signin" && "Welcome Back!"}
             {mode === "register" && "Create Your Account"}
             {mode === "forgot" && "Forgot Password?"}
           </h1>
-          <p className="text-xs text-zinc-400 px-3 leading-relaxed">
+          <p className="text-xs text-slate-500 px-2 leading-relaxed">
             {mode === "signin" &&
               "Sign in to access your V-DOCKX autonomous docking account."}
             {mode === "register" &&
@@ -164,18 +164,18 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* Error Notification */}
+        {/* Error Alert */}
         {error && (
-          <div className="mb-4 p-2.5 rounded-xl bg-[#2a1215] border border-[#592228] text-[11px] text-[#fca5a5] flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 flex-shrink-0 text-[#f87171]" />
+          <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 flex-shrink-0 text-red-600" />
             <span>{error}</span>
           </div>
         )}
 
         {/* Success Notification */}
         {successMessage && (
-          <div className="mb-4 p-2.5 rounded-xl bg-[#142013] border border-[#294224] text-[11px] text-[#cde655] flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-[#4ade80]" />
+          <div className="mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-600" />
             <span>{successMessage}</span>
           </div>
         )}
@@ -185,7 +185,7 @@ export default function LoginPage() {
           {/* Full Name (Register only) */}
           {mode === "register" && (
             <div>
-              <label className="block text-[11px] font-medium text-zinc-300 mb-1">
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Full Name*
               </label>
               <input
@@ -193,17 +193,17 @@ export default function LoginPage() {
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="Alex Smith"
-                className={`input-dark ${formErrors.fullName ? "border-[#f87171]" : ""}`}
+                className={`input-light ${formErrors.fullName ? "border-red-400" : ""}`}
               />
               {formErrors.fullName && (
-                <p className="text-[10px] text-[#f87171] mt-0.5">{formErrors.fullName}</p>
+                <p className="text-[10px] text-red-600 mt-0.5">{formErrors.fullName}</p>
               )}
             </div>
           )}
 
           {/* Email Address */}
           <div>
-            <label className="block text-[11px] font-medium text-zinc-300 mb-1">
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
               Email address*
             </label>
             <input
@@ -211,18 +211,18 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="example@gmail.com"
-              className={`input-dark ${formErrors.email ? "border-[#f87171]" : ""}`}
+              className={`input-light ${formErrors.email ? "border-red-400" : ""}`}
               required
             />
             {formErrors.email && (
-              <p className="text-[10px] text-[#f87171] mt-0.5">{formErrors.email}</p>
+              <p className="text-[10px] text-red-600 mt-0.5">{formErrors.email}</p>
             )}
           </div>
 
           {/* Password (Sign In & Register) */}
           {mode !== "forgot" && (
             <div>
-              <label className="block text-[11px] font-medium text-zinc-300 mb-1">
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Password*
               </label>
               <div className="relative">
@@ -231,41 +231,41 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="@Sn123hsn#"
-                  className={`input-dark pr-10 ${formErrors.password ? "border-[#f87171]" : ""}`}
+                  className={`input-light pr-10 ${formErrors.password ? "border-red-400" : ""}`}
                   required
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                   aria-label="Toggle password visibility"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
               {formErrors.password && (
-                <p className="text-[10px] text-[#f87171] mt-0.5">{formErrors.password}</p>
+                <p className="text-[10px] text-red-600 mt-0.5">{formErrors.password}</p>
               )}
             </div>
           )}
 
           {/* Remember Me & Forgot Password Row */}
           {mode === "signin" && (
-            <div className="flex items-center justify-between text-[11px] pt-0.5">
-              <label className="flex items-center gap-2 cursor-pointer text-zinc-400 hover:text-zinc-300">
+            <div className="flex items-center justify-between text-xs pt-0.5">
+              <label className="flex items-center gap-2 cursor-pointer text-slate-600 hover:text-slate-800">
                 <input
                   type="checkbox"
                   checked={rememberMe}
                   onChange={(e) => setRememberMe(e.target.checked)}
-                  className="w-3.5 h-3.5 rounded bg-[#16191f] border border-[#2a313d] accent-[#cde655]"
+                  className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 accent-blue-600"
                 />
-                <span>Remember me</span>
+                <span className="text-[11px]">Remember me</span>
               </label>
 
               <button
                 type="button"
                 onClick={() => handleSwitchMode("forgot")}
-                className="text-zinc-300 hover:text-[#cde655] font-medium transition-colors"
+                className="text-[11px] text-blue-600 hover:text-blue-700 font-medium transition-colors"
               >
                 Forgot Password?
               </button>
@@ -276,16 +276,16 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={isLoading}
-            className="btn-primary w-full py-3.5 text-[14px] mt-2 gap-2 shadow-sm font-semibold disabled:opacity-60"
+            className="btn-primary w-full py-3 text-sm mt-2 gap-2 font-semibold disabled:opacity-60"
           >
             {isLoading ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin text-[#0e1208]" />
+                <Loader2 className="w-4 h-4 animate-spin" />
                 <span>Verifying...</span>
               </>
             ) : (
               <>
-                <Sparkles className="w-4 h-4 text-[#0e1208]" />
+                <Sparkles className="w-4 h-4" />
                 <span>
                   {mode === "signin" && "Sign in"}
                   {mode === "register" && "Register"}
@@ -299,9 +299,9 @@ export default function LoginPage() {
         {/* Divider */}
         <div className="relative my-4 text-center">
           <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-[#1f2531]"></div>
+            <div className="w-full border-t border-slate-200"></div>
           </div>
-          <span className="relative px-3 bg-[#0e1116] text-[11px] text-zinc-400">
+          <span className="relative px-3 bg-white text-[11px] text-slate-400">
             Or continue with
           </span>
         </div>
@@ -311,7 +311,7 @@ export default function LoginPage() {
           <button
             type="button"
             onClick={handleSocialClick}
-            className="flex items-center justify-center py-2.5 px-3 rounded-full bg-[#151921] border border-[#242b36] text-[12px] font-medium text-zinc-300 hover:bg-[#1b212b] hover:border-[#323b49] transition-colors"
+            className="flex items-center justify-center py-2.5 px-3 rounded-full bg-white border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors shadow-sm"
           >
             <GoogleIcon />
             Google
@@ -319,7 +319,7 @@ export default function LoginPage() {
           <button
             type="button"
             onClick={handleSocialClick}
-            className="flex items-center justify-center py-2.5 px-3 rounded-full bg-[#151921] border border-[#242b36] text-[12px] font-medium text-zinc-300 hover:bg-[#1b212b] hover:border-[#323b49] transition-colors"
+            className="flex items-center justify-center py-2.5 px-3 rounded-full bg-white border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors shadow-sm"
           >
             <AppleIcon />
             Apple
@@ -327,14 +327,14 @@ export default function LoginPage() {
         </div>
 
         {/* Bottom Switch Mode Link */}
-        <div className="text-center pt-4 text-[11px] text-zinc-400">
+        <div className="text-center pt-4 text-xs text-slate-500">
           {mode === "signin" ? (
             <span>
               Don&apos;t have an account?{" "}
               <button
                 type="button"
                 onClick={() => handleSwitchMode("register")}
-                className="text-white font-semibold hover:text-[#cde655] transition-colors ml-1"
+                className="text-blue-600 font-semibold hover:text-blue-700 transition-colors ml-0.5"
               >
                 Sign up
               </button>
@@ -345,7 +345,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => handleSwitchMode("signin")}
-                className="text-white font-semibold hover:text-[#cde655] transition-colors ml-1"
+                className="text-blue-600 font-semibold hover:text-blue-700 transition-colors ml-0.5"
               >
                 Sign In
               </button>
