@@ -21,7 +21,6 @@ export default function OrganicSphere({ size = 110, className = "" }) {
     let animationFrameId;
     let time = 0;
 
-    // Organic noise generator for moss/mineral textures
     const noise2D = (x, y) => {
       const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
       return n - Math.floor(n);
@@ -33,7 +32,7 @@ export default function OrganicSphere({ size = 110, className = "" }) {
       const fx = x - i;
       const fy = y - j;
       const sx = fx * fx * (3 - 2 * fx);
-      const sy = fy * fy * (3 - 2 * fy);
+      const sy = fy * fy * (3 - 2 * fx);
 
       const n00 = noise2D(i, j);
       const n10 = noise2D(i + 1, j);
@@ -59,21 +58,21 @@ export default function OrganicSphere({ size = 110, className = "" }) {
     };
 
     const render = () => {
-      time += 0.008;
+      time += 0.009;
       ctx.clearRect(0, 0, width, height);
 
       const cx = width / 2;
       const cy = height / 2;
       const radius = width * 0.42;
 
-      // 1. Soft, non-neon ambient halo behind sphere
-      const haloGrad = ctx.createRadialGradient(cx, cy, radius * 0.7, cx, cy, radius * 1.25);
-      haloGrad.addColorStop(0, "rgba(85, 115, 45, 0.28)");
-      haloGrad.addColorStop(0.5, "rgba(55, 80, 30, 0.12)");
-      haloGrad.addColorStop(1, "rgba(20, 30, 15, 0)");
+      // 1. Soft, ethereal blue/indigo ambient glow behind sphere in light mode
+      const haloGrad = ctx.createRadialGradient(cx, cy, radius * 0.7, cx, cy, radius * 1.3);
+      haloGrad.addColorStop(0, "rgba(59, 130, 246, 0.22)");
+      haloGrad.addColorStop(0.5, "rgba(99, 102, 241, 0.10)");
+      haloGrad.addColorStop(1, "rgba(248, 250, 252, 0)");
       ctx.fillStyle = haloGrad;
       ctx.beginPath();
-      ctx.arc(cx, cy, radius * 1.25, 0, Math.PI * 2);
+      ctx.arc(cx, cy, radius * 1.3, 0, Math.PI * 2);
       ctx.fill();
 
       // 2. Base sphere clip
@@ -82,23 +81,24 @@ export default function OrganicSphere({ size = 110, className = "" }) {
       ctx.arc(cx, cy, radius, 0, Math.PI * 2);
       ctx.clip();
 
-      // 3. Deep obsidian-moss gradient base
+      // 3. Pearlescent Crystalline Gradient Base (Light Mode)
       const sphereGrad = ctx.createRadialGradient(
-        cx - radius * 0.3,
-        cy - radius * 0.35,
+        cx - radius * 0.32,
+        cy - radius * 0.38,
         radius * 0.05,
         cx,
         cy,
         radius
       );
-      sphereGrad.addColorStop(0, "#4d6b2c"); // soft olive peak
-      sphereGrad.addColorStop(0.35, "#2c4018"); // deep moss
-      sphereGrad.addColorStop(0.7, "#17220e"); // dark forest
-      sphereGrad.addColorStop(1, "#0a0f06"); // shadow base
+      sphereGrad.addColorStop(0, "#ffffff"); // bright pearl highlight
+      sphereGrad.addColorStop(0.25, "#e0e7ff"); // soft indigo shimmer
+      sphereGrad.addColorStop(0.55, "#c7d2fe"); // sky blue transition
+      sphereGrad.addColorStop(0.85, "#818cf8"); // cobalt pearl depth
+      sphereGrad.addColorStop(1, "#3730a3"); // deep sapphire base shadow
       ctx.fillStyle = sphereGrad;
       ctx.fillRect(0, 0, width, height);
 
-      // 4. Organic marbling / procedural moss veins
+      // 4. Subtle Prismatic Iridescent Refractions
       const imgData = ctx.getImageData(
         Math.floor((cx - radius) * dpr),
         Math.floor((cy - radius) * dpr),
@@ -115,45 +115,44 @@ export default function OrganicSphere({ size = 110, className = "" }) {
           const distSq = nx * nx + ny * ny;
           if (distSq <= 0.98) {
             const nz = Math.sqrt(1 - distSq);
-            // 3D rotation angle
             const rotX = nx * Math.cos(time) - nz * Math.sin(time);
             const rotZ = nx * Math.sin(time) + nz * Math.cos(time);
 
-            const nVal = fbm(rotX * 2.8 + 10, ny * 2.8 + rotZ * 1.2);
+            const nVal = fbm(rotX * 2.5 + 8, ny * 2.5 + rotZ * 1.1);
 
             const idx = (py * boxSize + px) * 4;
-            if (nVal > 0.48) {
-              const boost = (nVal - 0.48) * 45;
-              // Subtle olive/forest tint adjustments without neon saturation
-              data[idx] = Math.min(255, data[idx] + boost * 0.7);     // R
-              data[idx + 1] = Math.min(255, data[idx + 1] + boost * 1.0); // G
-              data[idx + 2] = Math.min(255, data[idx + 2] + boost * 0.3); // B
+            if (nVal > 0.45) {
+              const boost = (nVal - 0.45) * 35;
+              // Delicate cyan-indigo refractive caustic highlights
+              data[idx] = Math.min(255, data[idx] + boost * 0.4);     // R
+              data[idx + 1] = Math.min(255, data[idx + 1] + boost * 0.8); // G
+              data[idx + 2] = Math.min(255, data[idx + 2] + boost * 1.2); // B
             }
           }
         }
       }
       ctx.putImageData(imgData, (cx - radius) * dpr, (cy - radius) * dpr);
 
-      // 5. Soft specular rim light & ambient highlight
-      const highlightGrad = ctx.createRadialGradient(
+      // 5. Crisp Specular Top-Light Reflection
+      const specGrad = ctx.createRadialGradient(
         cx - radius * 0.28,
         cy - radius * 0.32,
         0,
-        cx - radius * 0.2,
-        cy - radius * 0.2,
-        radius * 0.7
+        cx - radius * 0.25,
+        cy - radius * 0.28,
+        radius * 0.55
       );
-      highlightGrad.addColorStop(0, "rgba(185, 215, 120, 0.45)");
-      highlightGrad.addColorStop(0.3, "rgba(120, 160, 65, 0.15)");
-      highlightGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
-      ctx.fillStyle = highlightGrad;
+      specGrad.addColorStop(0, "rgba(255, 255, 255, 0.95)");
+      specGrad.addColorStop(0.3, "rgba(255, 255, 255, 0.4)");
+      specGrad.addColorStop(1, "rgba(255, 255, 255, 0)");
+      ctx.fillStyle = specGrad;
       ctx.fillRect(0, 0, width, height);
 
-      // 6. Rim light vignette along edges
-      const rimGrad = ctx.createRadialGradient(cx, cy, radius * 0.75, cx, cy, radius);
+      // 6. Refined Rim Shading / Inner Glass Edge
+      const rimGrad = ctx.createRadialGradient(cx, cy, radius * 0.72, cx, cy, radius);
       rimGrad.addColorStop(0, "rgba(0, 0, 0, 0)");
-      rimGrad.addColorStop(0.85, "rgba(80, 115, 45, 0.25)");
-      rimGrad.addColorStop(1, "rgba(15, 25, 10, 0.9)");
+      rimGrad.addColorStop(0.85, "rgba(49, 46, 129, 0.15)");
+      rimGrad.addColorStop(1, "rgba(30, 27, 75, 0.4)");
       ctx.fillStyle = rimGrad;
       ctx.fillRect(0, 0, width, height);
 
@@ -174,19 +173,10 @@ export default function OrganicSphere({ size = 110, className = "" }) {
       className={`relative flex items-center justify-center select-none ${className}`}
       style={{ width: size, height: size }}
     >
-      {/* Background dot matrix halo */}
-      <div
-        className="absolute inset-0 rounded-full opacity-60 bg-dot-matrix-green pointer-events-none"
-        style={{
-          transform: "scale(1.4)",
-          maskImage: "radial-gradient(circle, black 40%, transparent 70%)",
-          WebkitMaskImage: "radial-gradient(circle, black 40%, transparent 70%)",
-        }}
-      />
       <canvas
         ref={canvasRef}
         style={{ width: size, height: size }}
-        className="relative z-10 drop-shadow-md"
+        className="relative z-10 drop-shadow-lg"
       />
     </div>
   );
