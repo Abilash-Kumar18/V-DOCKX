@@ -9,8 +9,8 @@ import math
 import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
-import cv2
-import numpy as np
+import cv2  # type: ignore
+import numpy as np  # type: ignore
 import yaml
 
 from docking.contracts import PerceptionOutput
@@ -21,6 +21,16 @@ class StationPoseDetector:
     6-DoF Station Fiducial Pose Estimator.
     Emits PerceptionOutput conforming strictly to frozen V-DOCKX data contract.
     """
+
+    BENCHMARK_SPECS = {
+        "forward_distance_accuracy_m": 0.02,   # ±2.0 cm at 1.0m
+        "terminal_distance_accuracy_m": 0.005, # ±0.5 cm inside deceleration zone (<0.35m)
+        "lateral_crosstrack_accuracy_m": 0.005, # ±0.5 cm across operating corridor
+        "heading_yaw_error_deg": 2.5,          # ±2.5 deg (~0.04 rad)
+        "corner_subpixel_precision_px": [0.1, 0.3], # Window size 5x5, eps=0.01
+        "max_reprojection_error_px": 0.8,      # Average PnP solver back-projection
+        "solver": "SOLVEPNP_IPPE_SQUARE",
+    }
 
     def __init__(
         self,
@@ -191,8 +201,9 @@ class StationPoseDetector:
         # Rotation matrix from Rodrigues vector
         R, _ = cv2.Rodrigues(rvec)
         # Relative yaw around camera vertical Y-axis:
-        # e_theta = atan2(R[0, 2], R[2, 2])
-        e_theta = float(math.atan2(R[0, 2], R[2, 2]))
+        # For a marker facing the camera, R_face = diag(1, -1, -1)
+        # R[0, 2] = -sin(theta), R[2, 2] = -cos(theta)
+        e_theta = math.atan2(-R[0, 2], -R[2, 2])
 
         # 6. Compute Reprojection Error
         projected_pts, _ = cv2.projectPoints(

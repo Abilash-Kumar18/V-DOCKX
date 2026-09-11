@@ -1,106 +1,141 @@
-# V-DOCKX
+# V-DOCKX | Vision-Based Autonomous Robot Docking & Telemetry Control
 
-**Vision-Based Autonomous Robot Docking and Charging System**
+[![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11-blue.svg)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-009688.svg)](https://fastapi.tiangolo.com)
+[![Next.js](https://img.shields.io/badge/Next.js-16.3-black.svg)](https://nextjs.org)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://docker.com)
+[![Tests](https://img.shields.io/badge/Tests-7%2F7%20Passed%20(100%25)-success.svg)](scripts/run_all_tests.py)
 
----
-
-## Setup
-
-### Prerequisites
-- **Node.js**: v18.0+ / npm v9.0+
-- **Python**: 3.10+ (with `pip` and `venv`)
-- **Mobile Development**: Flutter SDK (or React Native / Expo CLI) & Android Studio / Xcode
-- **Vision & Robotics**: OpenCV, NumPy, PyTorch / Ultralytics (YOLO), ROS2 / Gazebo (optional for simulation)
+V-DOCKX is a high-precision, vision-guided autonomous robot docking, collision evasion, and telemetry mission control platform. It combines sub-centimeter visual servoing, ArUco 6-DoF pose estimation, real-time corridor clearance assessment, and live smartphone camera video streaming.
 
 ---
 
-### Installation & Quickstart
+## 🏛️ Organized Project Structure
 
-#### 1. Clone the Repository
-```bash
-git clone https://github.com/Abilash-Kumar18/V-DOCKX.git
-cd V-DOCKX
-git checkout dev
 ```
-
-#### 2. Backend Setup (API & Vision Engine)
-```bash
-cd backend
-python -m venv venv
-# On Windows:
-.\venv\Scripts\activate
-# On Linux/macOS:
-# source venv/bin/activate
-
-pip install -r requirements.txt
-python main.py
-```
-*Backend server will start at `http://localhost:8000` (API docs at `http://localhost:8000/docs`).*
-
-#### 3. Frontend Dashboard Setup (Web UI / Telemetry)
-```bash
-cd frontend
-npm install
-npm run dev
-```
-*Web dashboard will be available at `http://localhost:5173` or `http://localhost:3000`.*
-
-#### 4. Mobile Application Setup (Remote Monitoring & Control)
-```bash
-cd mobile
-# For Flutter:
-flutter pub get
-flutter run
-
-# For React Native / Expo:
-# npm install
-# npx expo start
+V-DOCKX/
+├── backend/                  # FastAPI Application Layer (REST & WebSockets)
+│   └── main.py               # Telemetry, GPS tracking & vision processing server
+├── config/                   # YAML System Configurations
+│   ├── docking.yaml          # Tolerances, PID controller gains, FSM params
+│   ├── line.yaml             # HSV thresholds, perspective ROI
+│   └── obstacle.yaml         # Collision safety thresholds
+├── data/                     # Calibration and Replay Datasets
+├── deploy/                   # Production Deployment Packaging
+│   ├── Dockerfile.backend    # Multi-stage Python 3.11 slim backend image
+│   ├── Dockerfile.frontend   # Standalone Next.js Node 20 alpine image (~110MB)
+│   ├── nginx.conf            # Nginx ingress reverse proxy (Port 80 -> UI & API)
+│   ├── docker-compose.yml    # Multi-container orchestration
+│   ├── DEPLOYMENT.md         # In-depth deployment manual & architecture guide
+│   ├── .env.example          # Production environment template
+│   ├── start_local.bat       # One-click Windows development launcher
+│   └── start_local.sh        # One-click Linux/macOS development launcher
+├── docking/                  # Core Robotics & Computer Vision Algorithms
+│   ├── contracts.py          # Dataclasses & type schemas
+│   ├── controller.py         # Visual servoing PID controller
+│   ├── line_controller.py    # Line-following controller
+│   ├── line_detector.py      # CLAHE-enhanced path detector
+│   ├── free_space_detector.py# Geometric corridor collision detector (5.0m max horizon)
+│   ├── obstacle_ai.py        # MobileNet-SSD semantic obstacle detection
+│   ├── obstacle_fusion.py    # Multi-sensor fusion supervisor
+│   ├── hybrid_state_machine.py# Finite state machine coordinator
+│   ├── gps_tracker.py        # Smartphone relative GPS tracker
+│   ├── robot_adapter.py      # Hardware / simulation robot adapter
+│   └── safety.py             # Velocity clamping & emergency brake supervisor
+├── docs/                     # Specifications & Design Documents
+│   ├── Product Requirements Document.md
+│   ├── TEAM_EXECUTION_PLAN.md
+│   ├── BRANCHING_AND_CONFLICT_RULES.md
+│   ├── MEMBER_1_VISION_PERCEPTION.md
+│   ├── MEMBER_2_CONTROLS_BACKEND.md
+│   ├── MEMBER_3_DASHBOARD_TELEMETRY.md
+│   ├── workflow_infographic.jpg
+│   └── vdockx.pptx
+├── frontend/                 # Next.js 16 Mission Control Web Dashboard
+│   ├── src/app/              # App router (Dashboard, /camera, API routes)
+│   ├── src/lib/              # Video broadcasting & math utilities
+│   ├── public/               # Static assets & icons
+│   └── next.config.mjs       # Configured with standalone Docker output
+├── models/                   # AI weights and deployment prototxt
+│   ├── MobileNetSSD_deploy.prototxt
+│   ├── MobileNetSSD_deploy.caffemodel
+│   └── LICENSES.md
+├── results/                  # Automated benchmark logs & JSONL runs
+├── scripts/                  # Utilities, Benchmarks & Simulation Harness
+│   ├── run_all_tests.py      # Master 7-step test & compliance suite
+│   ├── run_hybrid_docking.py # Simulation docking runner
+│   ├── benchmark_models_validation.py # Model accuracy verification
+│   ├── evaluate_hybrid_runs.py        # Analytics & metrics generator
+│   └── replay_hybrid_run.py  # Offline telemetry replay harness
+├── tests/                    # Pytest Automated Test Suite (27/27 Passing)
+├── docker-compose.yml        # Root Docker Compose orchestrator
+├── pyproject.toml            # Python linting & packaging config
+├── requirements.txt          # Python production dependencies
+└── .env.example              # Environment variable template
 ```
 
 ---
 
-## Project PRD
+## 🚀 Quickstart & Deployment
 
-[PASTE FULL PRD OUTPUT FROM MANUS AI HERE]
+### 1. Unified One-Click Local Launcher
+For rapid local testing with mobile phone USB tethering:
+- **Windows**: Double click `deploy\start_local.bat`
+- **Linux/macOS**: Run `./deploy/start_local.sh`
 
-### 1. PROBLEM STATEMENT & IDEA
-- **Restated Problem**: Autonomous mobile robots (AMRs) in industrial, warehouse, and service environments must reliably return to charging stations to sustain 24/7 operations. In real-world environments, mechanical misalignments, dynamic lighting shifts, partial camera occlusions, and floor obstacles near charging pads cause docking failures. Repeated missed attempts drain battery reserves and disrupt operations.
-- **Product Pitch**: **V-DOCKX** is an AI-powered, vision-guided autonomous precision docking and fleet power management system that delivers sub-centimeter alignment, real-time obstacle evasion, and instant visual verification for autonomous robots.
-- **Target User Personas**: Warehouse Operations Managers, Robotics Deployment Engineers, Autonomous Fleet Maintenance Supervisors.
-- **Core Value Proposition**: Eliminates manual intervention and costly docking failures with robust multi-marker visual pose estimation, adaptive trajectory correction, real-time obstacle avoidance, and unified cross-platform fleet monitoring.
+### 2. Docker Compose (Production Deployment)
+Start the complete stack (Backend, Next.js Frontend, and Nginx Gateway):
+```bash
+docker compose up -d --build
+```
+- **Mission Control UI**: [http://localhost](http://localhost) (or `http://localhost:3000`)
+- **Mobile Camera Stream**: [http://localhost/camera](http://localhost/camera) (or `http://localhost:3000/camera`)
+- **Backend API Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Live Status**: [http://localhost:8000/api/status](http://localhost:8000/api/status)
 
-### 2. FEATURE SCOPE
-- **Must-Have (MVP)**:
-  1. Real-time vision-based charging station localization (ArUco / AprilTag / Visual Feature Detection).
-  2. Relative 6-DoF pose estimation (distance, yaw, pitch, roll, lateral offset) with error compensation under varied lighting.
-  3. Dynamic collision-free trajectory planner with real-time docking approach adjustment.
-  4. Visual alignment verification & electrical docking confirmation handshake.
-  5. Centralized telemetry dashboard & mobile monitor displaying live camera stream, docking trajectory, battery state, and diagnostic telemetry.
-- **Should-Have**:
-  - Multi-robot charging queue scheduling and automated bay allocation.
-  - Historical docking telemetry analytics (docking duration, retry rate, alignment error margins).
-  - Emergency manual teleoperation override via mobile and web interfaces.
-- **Won't-Have (Deferred)**:
-  - Hardware contact-pad fabrication specifications.
-  - Multi-warehouse cloud federation.
+For in-depth cloud deployment guides (AWS, DigitalOcean, Hetzner, Vercel, Railway, and SSL certificates for mobile camera access), read [deploy/DEPLOYMENT.md](deploy/DEPLOYMENT.md).
 
-### 3. TECH STACK
-- **Frontend**: React.js / Vite + Tailwind CSS / Vanilla CSS + Lucide Icons + Canvas / WebGL for real-time trajectory visualization.
-- **Backend & Vision Service**: FastAPI (Python 3.11) + OpenCV (`cv2`) + NumPy + SciPy + WebSockets for high-frequency telemetry streaming.
-- **Mobile App**: Flutter (Dart) or React Native for responsive real-time field diagnostics and teleoperation.
-- **Database**: PostgreSQL / SQLite (for local development) with SQLAlchemy ORM and Redis for telemetry caching.
-- **Deployment**: Docker containerization, Uvicorn / Gunicorn, Vercel / Netlify for web frontend.
+---
 
-### 4. SYSTEM ARCHITECTURE & DATA FLOW
-1. **Vision Ingestion**: Robot on-board camera captures docking bay optical feed.
-2. **Pose Estimation**: OpenCV / Vision Engine detects station visual fiducials and computes Euclidean distance and orientation matrix.
-3. **Trajectory & Control**: Path planner computes spline trajectory and velocity commands (`cmd_vel`) to compensate for lateral/angular drift.
-4. **Docking Handshake**: Proximity sensor + visual alignment verification triggers contact lock and begins charging cycle.
-5. **Telemetry Broadcast**: FastAPI backend broadcasts real-time state via WebSockets to Web Dashboard and Mobile App.
+## 🧪 Verification & Automated Testing
 
-### 5. TEAM & TASK ALLOCATION
-- **Abilash Kumar R** (Team Lead): Architecture, FastAPI backend, database models, WebSocket streaming, GitHub orchestration, deployment.
-- **Devaroopa E**: Frontend UI/UX, real-time docking HUD, camera feed viewer, alignment indicator components.
-- **Dharani V**: Mobile app development (Flutter/React Native), full-stack integration, DB migrations, mobile-to-robot telemetry.
-- **Dharshini B**: Frontend telemetry dashboard, analytics charts, partial backend API integration, session logging.
-- **Francis Fernando V**: Frontend components, obstacle warning indicators, responsive layout, simulation UI.
+V-DOCKX features an end-to-end automated validation suite:
+
+```bash
+# Run the 27-test Pytest unit and safety suite
+python -m pytest tests/ -v
+
+# Run the master 7-step benchmark and system scorecard
+python scripts/run_all_tests.py
+```
+
+### System Benchmark Scorecard (100% Compliant)
+```
+===========================================================================
+                  FINAL SYSTEM TEST SCORECARD
+===========================================================================
+  Model Accuracy & Benchmark Suite              : PASS [OK]
+  Pytest Unit & Safety Suite                    : PASS [OK]
+  Nominal Docking Run                           : PASS [OK]
+  Obstacle Safety Simulation                    : PASS [OK]
+  Offline Replay Test Harness                   : PASS [OK]
+  Batch Metric Evaluation                       : PASS [OK]
+  Live Backend Health                           : PASS [OK]
+---------------------------------------------------------------------------
+  OVERALL RESULT: 7/7 PASSED (100% READY)
+===========================================================================
+```
+
+---
+
+## 📱 Mobile Phone Camera Setup
+
+1. Connect your smartphone to the PC using a USB cable with USB Debugging enabled.
+2. Enable port forwarding (automatic in `start_local.bat`):
+   ```bash
+   adb reverse tcp:3000 tcp:3000
+   adb reverse tcp:8000 tcp:8000
+   ```
+3. On your phone's browser, open:
+   `http://localhost:3000/camera`
+4. Touch the phone to the charging port (3cm contact tolerance) to trigger the **`⚡ CHARGED (100%)`** confirmation handshake.

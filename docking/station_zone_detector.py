@@ -6,8 +6,8 @@ via wide transverse floor strip detection or fiducial marker arrival.
 
 import os
 from typing import Any, Dict, Optional, Tuple
-import cv2
-import numpy as np
+import cv2  # type: ignore
+import numpy as np  # type: ignore
 import yaml
 
 
@@ -115,7 +115,7 @@ class StationZoneDetector:
                     ):
                         raw_cue_detected = True
                         cue_reason = "transverse_stop_strip"
-                        confidence = float(min(1.0, 0.5 + width_ratio * 0.5))
+                        confidence = min(1.0, 0.5 + width_ratio * 0.5)
                         break
 
         # Debouncing filter

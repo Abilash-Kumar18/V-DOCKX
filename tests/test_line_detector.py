@@ -6,8 +6,8 @@ station zone cues, and 6-DoF fiducial pose estimation.
 
 import math
 import unittest
-import numpy as np
-import cv2
+import numpy as np  # type: ignore
+import cv2  # type: ignore
 
 from docking.contracts import LineDetectionOutput, PerceptionOutput
 from docking.line_detector import LineDetector
