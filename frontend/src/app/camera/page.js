@@ -89,31 +89,52 @@ export default function MobileCameraPage() {
     fetchAnchor();
   }, []);
 
-  // 2. Initialize Camera Feed
+  // 2. Robust Mobile Camera Initialization with Permission Fallbacks
   const initCamera = async (mode = facingMode) => {
     setErrorMsg(null);
+    if (typeof navigator === "undefined" || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setErrorMsg("Camera access requires HTTPS or localhost. Please ensure you are opening the https:// link.");
+      setIsStreaming(false);
+      return;
+    }
+
     try {
       if (videoRef.current && videoRef.current.srcObject) {
         videoRef.current.srcObject.getTracks().forEach((t) => t.stop());
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: mode },
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-        },
-        audio: false,
-      });
+      let stream = null;
+      try {
+        // Attempt high-res rear camera
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: mode },
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+          },
+          audio: false,
+        });
+      } catch (specErr) {
+        console.warn("Retrying with relaxed camera constraints...", specErr);
+        // Fallback to generic video stream for maximum mobile compatibility
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+      }
 
-      if (videoRef.current) {
+      if (videoRef.current && stream) {
         videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+        try {
+          await videoRef.current.play();
+        } catch (playErr) {
+          console.warn("Autoplay interaction needed:", playErr);
+        }
         setIsStreaming(true);
       }
     } catch (err) {
       console.error("Camera access error on phone:", err);
-      setErrorMsg("Camera permission denied. Please allow camera access in your browser settings.");
+      setErrorMsg("Camera access was blocked. Please tap 'Enable Camera' and grant camera permission in your browser.");
       setIsStreaming(false);
     }
   };
@@ -279,7 +300,7 @@ export default function MobileCameraPage() {
     const interval = setInterval(async () => {
       const video = videoRef.current;
       const canvas = captureCanvasRef.current;
-      if (!video || !canvas || video.readyState !== 4 || isSending) return;
+      if (!video || !canvas || video.readyState < 2 || isSending) return;
 
       isSending = true;
 
@@ -700,17 +721,38 @@ export default function MobileCameraPage() {
           </div>
         )}
 
-        {/* Error Fallback */}
-        {errorMsg && (
-          <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center p-6 text-center z-30">
-            <AlertCircle className="w-10 h-10 text-[#FF3820] mb-3" />
-            <p className="text-xs text-stone-200 mb-4 max-w-xs">{errorMsg}</p>
+        {/* Tap to Start Camera Overlay (Crucial for Mobile Browser Permission Handshake) */}
+        {!isStreaming && !errorMsg && (
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center z-30">
+            <div className="w-16 h-16 rounded-full bg-[#FF3820]/20 border-2 border-[#FF3820] flex items-center justify-center text-[#FF3820] mb-3 animate-pulse">
+              <Camera className="w-8 h-8" />
+            </div>
+            <h3 className="text-base font-bold text-white mb-1 font-sans">Mobile Dock Camera</h3>
+            <p className="text-xs text-stone-300 mb-5 max-w-xs font-mono">
+              Tap below to grant camera access and start transmitting video to your laptop dashboard.
+            </p>
             <button
               type="button"
               onClick={() => initCamera()}
-              className="px-5 py-2.5 rounded-full bg-[#FF3820] text-white text-xs font-bold uppercase tracking-wider cursor-pointer"
+              className="px-6 py-3 rounded-full bg-[#FF3820] hover:bg-[#E0301B] text-white text-xs font-mono font-bold tracking-wider uppercase shadow-lg shadow-[#FF3820]/40 transition-transform active:scale-95 cursor-pointer"
             >
-              Enable Camera
+              📷 Start Camera Stream
+            </button>
+          </div>
+        )}
+
+        {/* Error / Permission Blocked Fallback */}
+        {errorMsg && (
+          <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center p-6 text-center z-30">
+            <AlertCircle className="w-12 h-12 text-[#FF3820] mb-3" />
+            <h3 className="text-sm font-bold text-white mb-1">Camera Permission Needed</h3>
+            <p className="text-xs text-stone-300 mb-4 max-w-xs font-mono">{errorMsg}</p>
+            <button
+              type="button"
+              onClick={() => initCamera()}
+              className="px-6 py-2.5 rounded-full bg-[#FF3820] text-white text-xs font-mono font-bold uppercase tracking-wider cursor-pointer"
+            >
+              Grant Permission & Retry
             </button>
           </div>
         )}
