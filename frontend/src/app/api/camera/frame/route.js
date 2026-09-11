@@ -1,16 +1,16 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { updateBroadcastData, getLatestBroadcastData } from "@/lib/videoBroadcaster";
 
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { frame, pose } = body;
+    const { frame, pose, obstacle } = body;
 
-    if (!frame && !pose) {
-      return NextResponse.json({ error: "No frame or pose provided" }, { status: 400 });
+    if (!frame && !pose && !obstacle) {
+      return NextResponse.json({ error: "No frame, pose, or obstacle provided" }, { status: 400 });
     }
 
-    updateBroadcastData({ frame, pose });
+    updateBroadcastData({ frame, pose, obstacle });
     return NextResponse.json({ success: true, timestamp: Date.now() });
   } catch (error) {
     return NextResponse.json({ error: "Failed to broadcast data" }, { status: 500 });

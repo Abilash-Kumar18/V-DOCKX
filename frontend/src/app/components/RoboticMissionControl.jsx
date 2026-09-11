@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import {
+  MapPin,
   Play,
   Pause,
   AlertTriangle,
@@ -24,6 +25,7 @@ import {
   ArrowRight,
   Square,
   ShieldCheck,
+  ShieldAlert,
   ChevronRight,
   Activity,
   Layers,
@@ -35,20 +37,49 @@ import DockingMap2D from "./DockingMap2D";
 export default function RoboticMissionControl({ user, onLogout }) {
   // Robot pose in arena: x (0 to 2.0m), y (0 to 2.0m), theta (-180 to 180 deg)
   const [robotPose, setRobotPose] = useState({ x: 1.15, y: 1.65, theta: -84 });
-  const [controlMode, setControlMode] = useState("autonomous"); // 'autonomous' | 'manual'
-  const [teleopSpeed, setTeleopSpeed] = useState("normal"); // 'precise' | 'normal' | 'fast'
-  const [activeKey, setActiveKey] = useState(null);
   const [isDocking, setIsDocking] = useState(false);
   const [isEmergencyStopped, setIsEmergencyStopped] = useState(false);
   const [fsmState, setFsmState] = useState("APPROACH"); // 'LINE_FOLLOW' | 'APPROACH' | 'FINE_ALIGN' | 'DOCKED' | 'STOP'
   const [dwellTime, setDwellTime] = useState(0.0);
   const [activeView, setActiveView] = useState("diptych"); // 'diptych' | 'hud' | 'arena'
-  const [showTeleopPanel, setShowTeleopPanel] = useState(false);
+  const [isGpsSynced, setIsGpsSynced] = useState(false);
+  const [dockGps, setDockGps] = useState(null);
+
+  const handleSyncLaptopGps = () => {
+    if (typeof window !== "undefined" && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const { latitude, longitude } = pos.coords;
+          try {
+            const backendHost = window.location.hostname || "localhost";
+            await fetch("/api/dock/anchor", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ lat: latitude, lng: longitude, label: "Laptop Dock" }),
+            });
+            setIsGpsSynced(true);
+            setDockGps({ lat: latitude, lng: longitude });
+          } catch (err) {
+            console.warn("Could not sync dock anchor with backend:", err);
+            setIsGpsSynced(true);
+            setDockGps({ lat: latitude, lng: longitude });
+          }
+        },
+        (err) => console.warn("GPS error:", err.message),
+        { enableHighAccuracy: true }
+      );
+    }
+  };
 
   // Live Phone Camera & Mobile GPS State
   const [phoneFrame, setPhoneFrame] = useState(null);
   const [isPhoneConnected, setIsPhoneConnected] = useState(false);
   const [mobileGpsPose, setMobileGpsPose] = useState(null);
+  const [obstacleTelemetry, setObstacleTelemetry] = useState({
+    corridor_blocked: false,
+    min_distance_m: null,
+    detected_obstacles: [],
+  });
 
   // Poll for phone camera stream and real-time GPS motion from /api/camera/frame
   useEffect(() => {
@@ -63,14 +94,19 @@ export default function RoboticMissionControl({ user, onLogout }) {
             if (data.frame) {
               setPhoneFrame(data.frame);
             }
-            if (data.pose && typeof data.pose.x === "number" && typeof data.pose.y === "number") {
+            if (data.obstacle) {
+              setObstacleTelemetry(data.obstacle);
+            }
+            if (data.pose) {
               setMobileGpsPose(data.pose);
-              // Moving mobile phone moves the GPS marker on the 2D map in real time!
-              setRobotPose((prev) => ({
-                x: Number(data.pose.x.toFixed(3)),
-                y: Number(data.pose.y.toFixed(3)),
-                theta: typeof data.pose.heading === "number" ? Math.round(data.pose.heading) : prev.theta,
-              }));
+              if (typeof data.pose.x === "number" && typeof data.pose.y === "number") {
+                // Moving mobile phone moves the GPS marker on the 2D map in real time!
+                setRobotPose((prev) => ({
+                  x: Number(data.pose.x.toFixed(3)),
+                  y: Number(data.pose.y.toFixed(3)),
+                  theta: typeof data.pose.heading === "number" ? Math.round(data.pose.heading) : prev.theta,
+                }));
+              }
             }
           } else {
             setIsPhoneConnected(false);
@@ -92,8 +128,13 @@ export default function RoboticMissionControl({ user, onLogout }) {
   const powerStationPos = { x: 1.0, y: 0.35 };
   const dx = robotPose.x - powerStationPos.x;
   const dy = robotPose.y - powerStationPos.y;
-  const distanceM = Math.sqrt(dx * dx + dy * dy);
+  const arenaDistanceM = Math.sqrt(dx * dx + dy * dy);
+  // Prioritize live metric distance calculated from phone to laptop dock
+  const distanceM = (isPhoneConnected && typeof mobileGpsPose?.distance_m === "number" && mobileGpsPose.distance_m > 0)
+    ? mobileGpsPose.distance_m
+    : arenaDistanceM;
   const lateralOffsetM = dx;
+  const isCharged = distanceM <= 0.03 || fsmState === "DOCKED";
   const targetHeadingDeg = (Math.atan2(-dy, -dx) * 180) / Math.PI;
   const headingErrorDeg = Math.round(robotPose.theta - targetHeadingDeg);
 
@@ -103,105 +144,12 @@ export default function RoboticMissionControl({ user, onLogout }) {
   const elevationZ = 0.0; // Flat arena surface normal
 
   // Step sizing according to speed setting
-  const speedStep = teleopSpeed === "precise" ? 0.012 : teleopSpeed === "fast" ? 0.045 : 0.025;
-  const rotStep = teleopSpeed === "precise" ? 2.5 : teleopSpeed === "fast" ? 8 : 5;
 
-  // Manual Movement Dispatcher
-  const moveManual = useCallback(
-    (action) => {
-      if (isEmergencyStopped) return;
-      setIsDocking(false);
-      setControlMode("manual");
-
-      setRobotPose((prev) => {
-        let { x, y, theta } = prev;
-        const rad = (theta * Math.PI) / 180;
-
-        switch (action) {
-          case "forward":
-            x += Math.cos(rad) * speedStep;
-            y += Math.sin(rad) * speedStep;
-            break;
-          case "backward":
-            x -= Math.cos(rad) * speedStep;
-            y -= Math.sin(rad) * speedStep;
-            break;
-          case "left":
-            theta = (theta - rotStep + 360) % 360;
-            if (theta > 180) theta -= 360;
-            break;
-          case "right":
-            theta = (theta + rotStep + 360) % 360;
-            if (theta > 180) theta -= 360;
-            break;
-          case "stop":
-            return prev;
-          default:
-            break;
-        }
-
-        // Keep inside 2m x 2m arena boundaries
-        const clampedX = Math.max(0.1, Math.min(1.9, Number(x.toFixed(3))));
-        const clampedY = Math.max(0.35, Math.min(1.9, Number(y.toFixed(3))));
-        const clampedTheta = Math.round(theta);
-
-        // Check if manual alignment reached dock port
-        const remaining = Math.sqrt((clampedX - powerStationPos.x) ** 2 + (clampedY - powerStationPos.y) ** 2);
-        if (remaining <= 0.15 && Math.abs(clampedTheta - -90) <= 6) {
-          setFsmState("DOCKED");
-        } else if (remaining <= 0.4) {
-          setFsmState("FINE_ALIGN");
-        } else {
-          setFsmState("APPROACH");
-        }
-
-        return { x: clampedX, y: clampedY, theta: clampedTheta };
-      });
-    },
-    [speedStep, rotStep, isEmergencyStopped]
-  );
-
-  // Global Keyboard Listener for Teleoperation (W, A, S, D & Arrows)
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      // Avoid firing if typing in an input
-      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
-
-      let keyAct = null;
-      if (e.key === "w" || e.key === "W" || e.key === "ArrowUp") {
-        keyAct = "forward";
-      } else if (e.key === "s" || e.key === "S" || e.key === "ArrowDown") {
-        keyAct = "backward";
-      } else if (e.key === "a" || e.key === "A" || e.key === "ArrowLeft") {
-        keyAct = "left";
-      } else if (e.key === "d" || e.key === "D" || e.key === "ArrowRight") {
-        keyAct = "right";
-      } else if (e.key === " ") {
-        keyAct = "stop";
-        e.preventDefault();
-      }
-
-      if (keyAct) {
-        setActiveKey(keyAct);
-        moveManual(keyAct);
-      }
-    };
-
-    const handleKeyUp = () => {
-      setActiveKey(null);
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-    };
-  }, [moveManual]);
+  // Manual position override disabled: Robot location is strictly driven by live Phone GPS & Camera movements.
 
   // Autonomous Docking Simulation Loop
   useEffect(() => {
-    if (!isDocking || isEmergencyStopped || controlMode !== "autonomous") return;
+    if (!isDocking || isEmergencyStopped) return;
 
     const interval = setInterval(() => {
       setRobotPose((prev) => {
@@ -210,7 +158,7 @@ export default function RoboticMissionControl({ user, onLogout }) {
         );
 
         // If docked within tolerance
-        if (remainingDist <= 0.14) {
+        if (remainingDist <= 0.06) {
           setDwellTime((dt) => {
             if (dt >= 1.0) {
               setFsmState("DOCKED");
@@ -245,7 +193,7 @@ export default function RoboticMissionControl({ user, onLogout }) {
     }, 80);
 
     return () => clearInterval(interval);
-  }, [isDocking, isEmergencyStopped, controlMode]);
+  }, [isDocking, isEmergencyStopped]);
 
   // E-STOP Toggle
   const handleToggleEStop = () => {
@@ -264,7 +212,6 @@ export default function RoboticMissionControl({ user, onLogout }) {
     setRobotPose({ x: 1.18, y: 1.68, theta: -84 });
     setIsDocking(false);
     setIsEmergencyStopped(false);
-    setControlMode("autonomous");
     setFsmState("APPROACH");
     setDwellTime(0.0);
   };
@@ -344,52 +291,50 @@ export default function RoboticMissionControl({ user, onLogout }) {
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
               <span>
-                MOBILE GPS {mobileGpsPose?.lat ? `[${mobileGpsPose.lat.toFixed(4)}°, ${mobileGpsPose.lng.toFixed(4)}°]` : "[SYNCED]"}
+                MOBILE GPS {mobileGpsPose?.distance_m ? `[${mobileGpsPose.distance_m.toFixed(2)}m]` : "[SYNCED]"}
               </span>
             </div>
           )}
 
-          {/* Autonomous Dock Toggle Button */}
-          {!isDocking ? (
-            <button
-              type="button"
-              onClick={() => {
-                setControlMode("autonomous");
-                setIsDocking(true);
-                setIsEmergencyStopped(false);
-              }}
-              className="btn-vermillion px-6 py-2 text-xs gap-2 font-sans font-bold uppercase tracking-wider shadow-md cursor-pointer"
-            >
-              <Play className="w-3.5 h-3.5 fill-current" />
-              <span>Start Autonomous Docking</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setIsDocking(false)}
-              className="px-5 py-2 rounded-full bg-white border-2 border-[#C5A059] text-[#1A1715] text-xs font-sans font-bold hover:bg-[#FAF7F2] transition-colors flex items-center gap-2 shadow-sm cursor-pointer"
-            >
-              <Pause className="w-3.5 h-3.5 fill-current text-[#8C6D31]" />
-              <span>Pause Motion</span>
-            </button>
+          {/* Real-time Collision Reading Distance Badge in Header */}
+          {isPhoneConnected && (
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-mono font-bold shadow-xs border ${
+              obstacleTelemetry.corridor_blocked
+                ? "bg-red-50 border-red-400 text-red-700 animate-pulse"
+                : "bg-stone-50 border-stone-300 text-stone-700"
+            }`}>
+              <ShieldAlert className={`w-3.5 h-3.5 ${obstacleTelemetry.corridor_blocked ? "text-red-600" : "text-emerald-600"}`} />
+              <span>
+                COLLISION: {typeof obstacleTelemetry.min_distance_m === "number" && obstacleTelemetry.min_distance_m <= 5.0
+                  ? `${obstacleTelemetry.min_distance_m.toFixed(2)}m`
+                  : "CLEAR (>5.0m)"}
+              </span>
+            </div>
           )}
 
-          {/* Manual Teleoperation Toggle */}
+          {/* CHARGED State Prominent Indicator */}
+          {isCharged && (
+            <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-600 border-2 border-white text-white text-xs font-mono font-black shadow-[0_0_20px_rgba(16,185,129,0.6)] animate-bounce">
+              <Zap className="w-4 h-4 fill-current text-yellow-300" />
+              <span>⚡ CHARGED (100%) · DOCKED</span>
+            </div>
+          )}
+
+
+
+          {/* Sync Laptop Dock GPS Button */}
           <button
             type="button"
-            onClick={() => {
-              setIsDocking(false);
-              setControlMode((m) => (m === "manual" ? "autonomous" : "manual"));
-              setShowTeleopPanel((s) => !s);
-            }}
+            onClick={handleSyncLaptopGps}
             className={`px-4 py-2 rounded-full text-xs font-sans font-bold transition-all flex items-center gap-2 cursor-pointer ${
-              controlMode === "manual"
-                ? "bg-[#1A1715] text-white border-2 border-[#C5A059] shadow-md"
+              isGpsSynced
+                ? "bg-emerald-50 text-emerald-800 border-2 border-emerald-400 shadow-sm"
                 : "bg-white border border-[#C5A059]/40 text-stone-700 hover:bg-[#FAF7F2]"
             }`}
+            title="Anchor charging dock position to laptop's real GPS coordinates"
           >
-            <Gamepad2 className="w-4 h-4 text-[#FF3820]" />
-            <span>{controlMode === "manual" ? "Teleop Active" : "Manual Teleop"}</span>
+            <MapPin className="w-4 h-4 text-[#D4AF37]" />
+            <span>{isGpsSynced ? "Laptop Dock Anchored" : "Sync Laptop Dock GPS"}</span>
           </button>
         </div>
 
@@ -445,115 +390,6 @@ export default function RoboticMissionControl({ user, onLogout }) {
           2. VIEWPORTS: STREAMLINED EXPANDED VIEW (CAMERA + ARENA MAP)
           ============================================================ */}
       <main className="flex-1 mb-4 flex flex-col relative">
-        {/* Floating Manual Teleoperation Controller Overlay (Drawer / HUD) */}
-        {(controlMode === "manual" || showTeleopPanel) && (
-          <div className="absolute top-3 right-3 z-30 bg-white/95 backdrop-blur-xl border-2 border-[#C5A059]/50 rounded-3xl p-4 shadow-2xl transition-all">
-            <div className="flex items-center justify-between mb-3 pb-2 border-b border-stone-100">
-              <div className="flex items-center gap-2">
-                <Gamepad2 className="w-4 h-4 text-[#FF3820]" />
-                <span className="text-xs font-bold font-sans text-stone-900">Manual Pilot (WASD)</span>
-              </div>
-              <span className="text-[10px] font-mono font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                LIVE TELEOP
-              </span>
-            </div>
-
-            {/* Directional Pad */}
-            <div className="flex flex-col items-center gap-1.5 my-2">
-              {/* Up */}
-              <button
-                type="button"
-                onClick={() => moveManual("forward")}
-                className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-sm border transition-all cursor-pointer ${
-                  activeKey === "forward"
-                    ? "bg-[#FF3820] text-white border-[#FF3820] scale-95 shadow-md"
-                    : "bg-[#FAF7F2] border-[#C5A059]/40 text-stone-800 hover:bg-white hover:border-[#FF3820]"
-                }`}
-                title="Forward (W / Up Arrow)"
-              >
-                <ArrowUp className="w-5 h-5" />
-              </button>
-
-              {/* Middle Row: Left, Stop, Right */}
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => moveManual("left")}
-                  className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-sm border transition-all cursor-pointer ${
-                    activeKey === "left"
-                      ? "bg-[#FF3820] text-white border-[#FF3820] scale-95 shadow-md"
-                      : "bg-[#FAF7F2] border-[#C5A059]/40 text-stone-800 hover:bg-white hover:border-[#FF3820]"
-                  }`}
-                  title="Rotate CCW (A / Left Arrow)"
-                >
-                  <ArrowLeft className="w-5 h-5" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => moveManual("stop")}
-                  className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-sm border transition-all cursor-pointer ${
-                    activeKey === "stop"
-                      ? "bg-red-600 text-white border-red-600 scale-95"
-                      : "bg-red-50 border-red-200 text-[#FF3820] hover:bg-red-100"
-                  }`}
-                  title="Brake / Stop (Spacebar)"
-                >
-                  <Square className="w-4 h-4 fill-current" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => moveManual("right")}
-                  className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-sm border transition-all cursor-pointer ${
-                    activeKey === "right"
-                      ? "bg-[#FF3820] text-white border-[#FF3820] scale-95 shadow-md"
-                      : "bg-[#FAF7F2] border-[#C5A059]/40 text-stone-800 hover:bg-white hover:border-[#FF3820]"
-                  }`}
-                  title="Rotate CW (D / Right Arrow)"
-                >
-                  <ArrowRight className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Down */}
-              <button
-                type="button"
-                onClick={() => moveManual("backward")}
-                className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-sm border transition-all cursor-pointer ${
-                  activeKey === "backward"
-                    ? "bg-[#FF3820] text-white border-[#FF3820] scale-95 shadow-md"
-                    : "bg-[#FAF7F2] border-[#C5A059]/40 text-stone-800 hover:bg-white hover:border-[#FF3820]"
-                }`}
-                title="Reverse (S / Down Arrow)"
-              >
-                <ArrowDown className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Speed Throttling */}
-            <div className="mt-3 pt-2.5 border-t border-stone-100 flex items-center justify-between gap-1 text-[10px] font-mono">
-              <span className="text-stone-500 font-bold">SPEED:</span>
-              <div className="flex items-center gap-1 bg-[#FAF7F2] p-0.5 rounded-full border border-stone-200">
-                {["precise", "normal", "fast"].map((sp) => (
-                  <button
-                    key={sp}
-                    type="button"
-                    onClick={() => setTeleopSpeed(sp)}
-                    className={`px-2 py-0.5 rounded-full capitalize font-bold transition-all cursor-pointer ${
-                      teleopSpeed === sp
-                        ? "bg-[#FF3820] text-white shadow-xs"
-                        : "text-stone-600 hover:text-stone-900"
-                    }`}
-                  >
-                    {sp === "precise" ? "0.5x" : sp === "normal" ? "1.0x" : "2.0x"}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Viewport Renderings */}
         {activeView === "diptych" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 h-[480px] lg:h-[560px]">
@@ -565,13 +401,18 @@ export default function RoboticMissionControl({ user, onLogout }) {
               phoneFrame={phoneFrame}
               isPhoneConnected={isPhoneConnected}
               mobileGpsPose={mobileGpsPose}
+              isCharged={isCharged}
+              obstacleTelemetry={obstacleTelemetry}
             />
             <DockingMap2D
               robotPose={robotPose}
-              onRobotMove={(newPose) => setRobotPose(newPose)}
+              onRobotMove={null}
               isDocking={isDocking}
               mobileGpsPose={mobileGpsPose}
               isPhoneConnected={isPhoneConnected}
+              isCharged={isCharged}
+              distToDock={distanceM}
+              obstacleTelemetry={obstacleTelemetry}
             />
           </div>
         )}
@@ -586,6 +427,8 @@ export default function RoboticMissionControl({ user, onLogout }) {
               phoneFrame={phoneFrame}
               isPhoneConnected={isPhoneConnected}
               mobileGpsPose={mobileGpsPose}
+              isCharged={isCharged}
+              obstacleTelemetry={obstacleTelemetry}
             />
           </div>
         )}
@@ -594,10 +437,13 @@ export default function RoboticMissionControl({ user, onLogout }) {
           <div className="w-full h-[500px] lg:h-[580px]">
             <DockingMap2D
               robotPose={robotPose}
-              onRobotMove={(newPose) => setRobotPose(newPose)}
+              onRobotMove={null}
               isDocking={isDocking}
               mobileGpsPose={mobileGpsPose}
               isPhoneConnected={isPhoneConnected}
+              isCharged={isCharged}
+              distToDock={distanceM}
+              obstacleTelemetry={obstacleTelemetry}
             />
           </div>
         )}
@@ -607,7 +453,7 @@ export default function RoboticMissionControl({ user, onLogout }) {
           3. 6-DOF APRILTAG ALIGNMENT HUD & TELEMETRY BAR
           ============================================================ */}
       <footer className="frame-gilded p-4 sm:p-5 shadow-lg backdrop-blur-md">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 max-w-7xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 max-w-7xl mx-auto">
           
           {/* Card 1: 3-Axis Translation (X, Y, Z) */}
           <div className="flex items-center gap-3.5 p-2 rounded-2xl bg-white/60 border border-[#C5A059]/25">
@@ -691,36 +537,79 @@ export default function RoboticMissionControl({ user, onLogout }) {
             </div>
           </div>
 
-          {/* Card 4: FSM Operational Phase */}
-          <div className="flex items-center gap-3.5 p-2 rounded-2xl bg-white/60 border border-[#C5A059]/25">
-            <div className="w-10 h-10 rounded-full bg-[#FAF7F2] border border-[#C5A059]/40 flex items-center justify-center text-[#8C6D31] shadow-xs">
-              <CheckCircle2
-                className={`w-5 h-5 ${
-                  fsmState === "DOCKED" ? "text-emerald-600 animate-pulse" : "text-[#C5A059]"
-                }`}
-              />
+          {/* Card 4: FSM Operational Phase / Charged */}
+          <div className={`flex items-center gap-3.5 p-2 rounded-2xl border transition-all ${
+            isCharged
+              ? "bg-emerald-50/90 border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.3)]"
+              : "bg-white/60 border-[#C5A059]/25"
+          }`}>
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center shadow-xs border ${
+              isCharged ? "bg-emerald-500 text-white border-white animate-pulse" : "bg-[#FAF7F2] border-[#C5A059]/40 text-[#8C6D31]"
+            }`}>
+              {isCharged ? <Zap className="w-5 h-5 fill-current" /> : <CheckCircle2 className="w-5 h-5 text-[#C5A059]" />}
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-[10px] font-mono font-bold text-[#8C6D31] uppercase tracking-wider">
-                MISSION FSM PHASE
+                {isCharged ? "⚡ POWER & DOCK STATUS" : "MISSION FSM PHASE"}
               </div>
               <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-sm font-sans font-black tracking-wide text-[#1A1715]">
+                <span className={`text-sm font-sans font-black tracking-wide ${isCharged ? "text-emerald-800" : "text-[#1A1715]"}`}>
                   {isEmergencyStopped
                     ? "E-STOP TRIPPED"
-                    : controlMode === "manual"
-                    ? "MANUAL PILOT"
+                    : isCharged
+                    ? "⚡ CHARGED (100%)"
                     : fsmState === "DOCKED"
                     ? "DOCKED CONFIRMED"
                     : fsmState === "FINE_ALIGN"
                     ? "FINE ALIGNMENT"
                     : "APPROACH PHASE"}
                 </span>
-                <span className="w-2 h-2 rounded-full bg-[#FF3820] animate-pulse" />
+                <span className={`w-2 h-2 rounded-full ${isCharged ? "bg-emerald-500" : "bg-[#FF3820]"} animate-pulse`} />
               </div>
               <span className="text-[10px] font-mono text-stone-500 mt-0.5 block">
-                DWELL: {dwellTime.toFixed(1)}s / 1.0s
+                {isCharged ? "BATTERY FULL (29.4V) · DOCKED" : `DWELL: ${dwellTime.toFixed(1)}s / 1.0s`}
               </span>
+            </div>
+          </div>
+
+          {/* Card 5: AI Collision Sensor Radar Reading */}
+          <div className={`flex items-center gap-3.5 p-2 rounded-2xl border transition-all ${
+            obstacleTelemetry.corridor_blocked
+              ? "bg-red-50/90 border-red-400 shadow-md"
+              : "bg-white/60 border-[#C5A059]/25"
+          }`}>
+            <div className={`w-10 h-10 rounded-2xl border flex items-center justify-center shadow-xs ${
+              obstacleTelemetry.corridor_blocked
+                ? "bg-red-500 text-white border-white animate-pulse"
+                : "bg-[#FAF7F2] border-[#C5A059]/40 text-[#8C6D31]"
+            }`}>
+              <ShieldAlert className="w-5 h-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] font-mono font-bold text-[#8C6D31] uppercase tracking-wider">
+                COLLISION SENSOR
+              </div>
+              <div className="flex items-baseline gap-2 mt-0.5 font-mono text-sm font-bold">
+                <span className={obstacleTelemetry.corridor_blocked && obstacleTelemetry.min_distance_m <= 5.0 ? "text-red-700 font-black animate-pulse" : "text-emerald-700"}>
+                  {typeof obstacleTelemetry.min_distance_m === "number" && obstacleTelemetry.min_distance_m <= 5.0
+                    ? `${obstacleTelemetry.min_distance_m.toFixed(2)}m`
+                    : "CLEAR (>5.0m)"}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 mt-1">
+                <span className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded-full ${
+                  obstacleTelemetry.corridor_blocked
+                    ? "bg-red-200 text-red-900 border border-red-400 animate-pulse"
+                    : "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                }`}>
+                  {obstacleTelemetry.corridor_blocked ? "HAZARD STOP" : "CORRIDOR CLEAR"}
+                </span>
+                {obstacleTelemetry.detected_obstacles?.length > 0 && (
+                  <span className="text-[9px] font-mono text-stone-500 truncate">
+                    {obstacleTelemetry.detected_obstacles[0].class}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 

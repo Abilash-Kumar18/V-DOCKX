@@ -32,13 +32,13 @@ class FreeSpaceDetector:
         edge_density_threshold: float = 0.06,
         canny_thresh1: int = 50,
         canny_thresh2: int = 150,
-        lookahead_distance_m: float = 1.50,
+        lookahead_distance_m: float = 5.00,
         min_distance_base_m: float = 0.20,
     ):
         self.edge_density_threshold = edge_density_threshold
         self.canny_thresh1 = canny_thresh1
         self.canny_thresh2 = canny_thresh2
-        self.lookahead_distance_m = lookahead_distance_m
+        self.lookahead_distance_m = 5.00  # Enforce 5.0m maximum collision detection range
         self.min_distance_base_m = min_distance_base_m
 
         # Default trapezoid ground corridor in 640x480 frame

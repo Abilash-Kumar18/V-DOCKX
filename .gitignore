@@ -48,6 +48,13 @@ pnpm-debug.log*
 
 # Vite / Frontend build artifacts
 frontend/dist/
+# Next.js build output
+.next/
+frontend/.next/
+out/
+frontend/out/
+next-env.d.ts
+
 frontend/build/
 .vite/
 
