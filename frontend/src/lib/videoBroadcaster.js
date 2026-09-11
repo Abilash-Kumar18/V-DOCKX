@@ -1,4 +1,4 @@
-// In-memory frame and mobile pose broadcast buffer connecting Mobile Phone to PC HUD & 2D Map
+// In-memory frame, mobile pose, and collision obstacle broadcast buffer connecting Mobile Phone to PC HUD & 2D Map
 
 if (!globalThis.__vdockx_broadcaster) {
   globalThis.__vdockx_broadcaster = {
@@ -6,6 +6,11 @@ if (!globalThis.__vdockx_broadcaster) {
     mobilePose: null,
     motion: null,
     destination: { x: 1.0, y: 0.35 },
+    latestObstacle: {
+      corridor_blocked: false,
+      min_distance_m: 999.0,
+      detected_obstacles: [],
+    },
     timestamp: 0,
     subscribers: new Set(),
   };
@@ -18,8 +23,15 @@ if (!globalBroadcast.subscribers || !(globalBroadcast.subscribers instanceof Set
 if (!globalBroadcast.destination) {
   globalBroadcast.destination = { x: 1.0, y: 0.35 };
 }
+if (!globalBroadcast.latestObstacle) {
+  globalBroadcast.latestObstacle = {
+    corridor_blocked: false,
+    min_distance_m: 999.0,
+    detected_obstacles: [],
+  };
+}
 
-export function updateBroadcastData({ frame, pose, motion, destination }) {
+export function updateBroadcastData({ frame, pose, motion, destination, obstacle }) {
   if (frame) {
     globalBroadcast.latestFrame = frame;
   }
@@ -42,6 +54,12 @@ export function updateBroadcastData({ frame, pose, motion, destination }) {
       y: Number(destination.y.toFixed(3)),
     };
   }
+  if (obstacle) {
+    globalBroadcast.latestObstacle = {
+      ...obstacle,
+      timestamp: Date.now(),
+    };
+  }
   globalBroadcast.timestamp = Date.now();
 
   // Notify active stream subscribers
@@ -53,6 +71,7 @@ export function updateBroadcastData({ frame, pose, motion, destination }) {
           pose: globalBroadcast.mobilePose,
           motion: globalBroadcast.motion,
           destination: globalBroadcast.destination,
+          obstacle: globalBroadcast.latestObstacle,
           timestamp: globalBroadcast.timestamp,
         });
       } catch (e) {
@@ -69,6 +88,9 @@ export function getLatestBroadcastData() {
     pose: isFresh ? globalBroadcast.mobilePose : null,
     motion: isFresh ? globalBroadcast.motion : null,
     destination: globalBroadcast.destination || { x: 1.0, y: 0.35 },
+    obstacle: isFresh
+      ? globalBroadcast.latestObstacle
+      : { corridor_blocked: false, min_distance_m: 999.0, detected_obstacles: [] },
     timestamp: globalBroadcast.timestamp,
     isFresh,
   };

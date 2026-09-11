@@ -4,13 +4,13 @@ import { updateBroadcastData, getLatestBroadcastData } from "@/lib/videoBroadcas
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { frame, pose, motion, destination } = body;
+    const { frame, pose, motion, destination, obstacle } = body;
 
-    if (!frame && !pose && !motion && !destination) {
-      return NextResponse.json({ error: "No telemetry or destination provided" }, { status: 400 });
+    if (!frame && !pose && !motion && !destination && !obstacle) {
+      return NextResponse.json({ error: "No telemetry, frame, or obstacle provided" }, { status: 400 });
     }
 
-    updateBroadcastData({ frame, pose, motion, destination });
+    updateBroadcastData({ frame, pose, motion, destination, obstacle });
     const latest = getLatestBroadcastData();
 
     // Direct server-to-server forward to FastAPI backend on localhost

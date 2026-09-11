@@ -25,6 +25,8 @@ export default function RoboticCameraHUD({
   phoneFrame: propPhoneFrame = null,
   isPhoneConnected: propIsPhoneConnected = false,
   mobileGpsPose = null,
+  isCharged = false,
+  obstacleTelemetry = null,
 }) {
   const videoRef = useRef(null);
   const mjpegImgRef = useRef(null);
@@ -317,7 +319,7 @@ export default function RoboticCameraHUD({
         // ============================================================
         // 1. AUTOMOTIVE DYNAMIC PARKING GUIDE LINES ("Imaginary Lines")
         // ============================================================
-        const trackHalf = 175; // Half vehicle track width at bottom of camera
+        const trackHalf = 100; // Sleek, modern vehicle track width
         const botLeftX = w / 2 - trackHalf + steerOffset * 0.3;
         const botRightX = w / 2 + trackHalf + steerOffset * 0.3;
         const botY = h;
@@ -345,135 +347,174 @@ export default function RoboticCameraHUD({
           : "rgba(16, 185, 129, 0.08)";
         ctx.fill();
 
-        // Draw Left Guide Rail
+        // Draw Left Guide Rail (Sleek 2px rail with subtle neon glow)
         ctx.strokeStyle = primaryRailGlow;
-        ctx.lineWidth = 10;
+        ctx.lineWidth = 4;
         ctx.beginPath();
         ctx.moveTo(topLeftX, topY);
         ctx.quadraticCurveTo(midLeftX, midY, botLeftX, botY);
         ctx.stroke();
 
         ctx.strokeStyle = primaryRailColor;
-        ctx.lineWidth = 3.5;
+        ctx.lineWidth = 1.8;
         ctx.beginPath();
         ctx.moveTo(topLeftX, topY);
         ctx.quadraticCurveTo(midLeftX, midY, botLeftX, botY);
         ctx.stroke();
 
-        // Draw Right Guide Rail
+        // Draw Right Guide Rail (Sleek 2px rail with subtle neon glow)
         ctx.strokeStyle = primaryRailGlow;
-        ctx.lineWidth = 10;
+        ctx.lineWidth = 4;
         ctx.beginPath();
         ctx.moveTo(topRightX, topY);
         ctx.quadraticCurveTo(midRightX, midY, botRightX, botY);
         ctx.stroke();
 
         ctx.strokeStyle = primaryRailColor;
-        ctx.lineWidth = 3.5;
+        ctx.lineWidth = 1.8;
         ctx.beginPath();
         ctx.moveTo(topRightX, topY);
         ctx.quadraticCurveTo(midRightX, midY, botRightX, botY);
         ctx.stroke();
 
         // ============================================================
-        // 2. AUTOMOTIVE DISTANCE GATES (1.5m, 1.0m, 0.5m, STOP 0.25m)
+        // 2. MINIMALIST DISTANCE METRIC TICKS (Sleek rail notches, no clunky crossbars)
         // ============================================================
         const distanceGates = [
           { dist: 1.5, progress: 0.18, label: "1.5m", color: "#10B981" },
           { dist: 1.0, progress: 0.40, label: "1.0m", color: "#10B981" },
           { dist: 0.5, progress: 0.70, label: "0.5m", color: "#F59E0B" },
-          { dist: 0.25, progress: 0.90, label: "STOP (0.25m)", color: "#FF1F1F" },
+          { dist: 0.25, progress: 0.90, label: "STOP", color: "#FF1F1F" },
         ];
 
         distanceGates.forEach((gate) => {
           const u = gate.progress;
-          // Quadratic Bézier evaluation: B(u) = (1-u)^2*P0 + 2(1-u)u*P1 + u^2*P2
           const oneMinusU = 1 - u;
           const gxL = oneMinusU * oneMinusU * topLeftX + 2 * oneMinusU * u * midLeftX + u * u * botLeftX;
           const gyL = oneMinusU * oneMinusU * topY + 2 * oneMinusU * u * midY + u * u * botY;
-
           const gxR = oneMinusU * oneMinusU * topRightX + 2 * oneMinusU * u * midRightX + u * u * botRightX;
           const gyR = oneMinusU * oneMinusU * topY + 2 * oneMinusU * u * midY + u * u * botY;
 
           const isBreached = distanceM <= gate.dist;
           const gateColor = isBreached || isCriticalProximity ? "#FF1F1F" : gate.color;
 
-          // Crossbar connecting left and right rail
+          // Delicate Rail Notches (No full screen crossbars)
           ctx.strokeStyle = gateColor;
-          ctx.lineWidth = isBreached ? 3 : 2;
+          ctx.lineWidth = 1.8;
           ctx.beginPath();
-          ctx.moveTo(gxL, gyL);
-          ctx.lineTo(gxR, gyR);
+          ctx.moveTo(gxL - 8, gyL);
+          ctx.lineTo(gxL + 4, gyL);
+          ctx.moveTo(gxR - 4, gyR);
+          ctx.lineTo(gxR + 8, gyR);
           ctx.stroke();
 
-          // Gate Hash Ticks
-          ctx.beginPath();
-          ctx.moveTo(gxL - 10, gyL);
-          ctx.lineTo(gxL + 6, gyL);
-          ctx.moveTo(gxR - 6, gyR);
-          ctx.lineTo(gxR + 10, gyR);
-          ctx.stroke();
-
-          // Distance Tag
+          // Minimalist Distance Label
           ctx.fillStyle = gateColor;
-          ctx.font = "bold 9px monospace";
-          ctx.fillText(gate.label, gxR + 14, gyR + 3);
+          ctx.font = "bold 8.5px monospace";
+          ctx.fillText(gate.label, gxR + 12, gyR + 3);
         });
 
         // ============================================================
-        // 3. DYNAMIC SHORTEST REROUTING PATH LINE
+        // 3. DYNAMIC OBSTACLE CLEARANCE & SHORTEST REROUTING TRAJECTORY
         // ============================================================
-        // When approaching or navigating, calculates the next shortest collision-free path line!
         const pathStartX = w / 2;
         const pathStartY = h - 10;
         const pathEndX = tagCenterX;
         const pathEndY = tagCenterY + tagH / 2;
-        const pathMidX = (pathStartX + pathEndX) / 2 + (isCriticalProximity ? (lateralOffsetM * 120) : 0);
+
+        // Check if corridor obstacle is active
+        const minObsDist = obstacleTelemetry?.min_distance_m;
+        const isObsInCorridor = (obstacleTelemetry?.corridor_blocked || (minObsDist !== undefined && minObsDist <= 5.0));
+        const detectedList = (obstacleTelemetry?.detected_obstacles || []).filter((d) => (d.distance_m || 999) <= 5.0);
+
+        // Evaluate Left and Right area clearance on HUD
+        let hudReroute = "DIRECT";
+        let lateralBypassPx = 0;
+        let isLeftClear = true;
+        let isRightClear = true;
+
+        if (isObsInCorridor) {
+          // Check lateral position of primary obstacle
+          const primObs = detectedList[0];
+          const box = primObs?.box || [0, 0.4, 0.6, 0.6];
+          const centerNormX = ((box[1] + box[3]) / 2) - 0.5; // -0.5 (left) to +0.5 (right)
+
+          // If obstacle is shifted right or center -> Left corridor is preferred
+          if (centerNormX >= 0) {
+            isLeftClear = true;
+            isRightClear = false;
+            hudReroute = "LEFT";
+            lateralBypassPx = -75;
+          } else {
+            isRightClear = true;
+            isLeftClear = false;
+            hudReroute = "RIGHT";
+            lateralBypassPx = 75;
+          }
+        }
+
+        const isRerouting = hudReroute === "LEFT" || hudReroute === "RIGHT";
+        const pathMidX = (pathStartX + pathEndX) / 2 + (isRerouting ? lateralBypassPx : (isCriticalProximity ? lateralOffsetM * 120 : 0));
         const pathMidY = (pathStartY + pathEndY) / 2;
 
-        if (isCriticalProximity) {
-          // In critical proximity, draw the dynamic recalculated shortest recovery spline in neon cyan/white!
-          ctx.strokeStyle = "rgba(6, 182, 212, 0.4)";
-          ctx.lineWidth = 8;
+        if (isRerouting || isCriticalProximity) {
+          // Dynamic Neon Cyan Rerouting Trajectory around obstacle
+          ctx.strokeStyle = "rgba(6, 182, 212, 0.35)";
+          ctx.lineWidth = 7;
           ctx.beginPath();
           ctx.moveTo(pathStartX, pathStartY);
-          ctx.quadraticCurveTo(pathMidX + 25, pathMidY, pathEndX, pathEndY);
+          ctx.quadraticCurveTo(pathMidX, pathMidY, pathEndX, pathEndY);
           ctx.stroke();
 
-          // Recalculated Shortest Path Line
           ctx.strokeStyle = "#06B6D4";
-          ctx.lineWidth = 2.5;
+          ctx.lineWidth = 2.2;
           ctx.beginPath();
           ctx.moveTo(pathStartX, pathStartY);
-          ctx.quadraticCurveTo(pathMidX + 25, pathMidY, pathEndX, pathEndY);
+          ctx.quadraticCurveTo(pathMidX, pathMidY, pathEndX, pathEndY);
           ctx.stroke();
 
-          // Flowing directional pulse along the shortest reroute
+          // Flowing directional micro-photons
           ctx.strokeStyle = "#FFFFFF";
-          ctx.lineWidth = 2;
-          ctx.setLineDash([8, 8]);
-          ctx.lineDashOffset = -t * 22;
+          ctx.lineWidth = 1.8;
+          ctx.setLineDash([5, 8]);
+          ctx.lineDashOffset = -t * 24;
           ctx.beginPath();
           ctx.moveTo(pathStartX, pathStartY);
-          ctx.quadraticCurveTo(pathMidX + 25, pathMidY, pathEndX, pathEndY);
+          ctx.quadraticCurveTo(pathMidX, pathMidY, pathEndX, pathEndY);
           ctx.stroke();
           ctx.setLineDash([]);
 
-          // Waypoint target bead on dock
+          // Bypass Waypoint Puck on Camera Screen
           ctx.fillStyle = "#06B6D4";
+          ctx.strokeStyle = "#FFFFFF";
+          ctx.lineWidth = 1.5;
           ctx.beginPath();
-          ctx.arc(pathEndX, pathEndY, 5, 0, Math.PI * 2);
+          ctx.arc(pathMidX, pathMidY, 5, 0, Math.PI * 2);
           ctx.fill();
+          ctx.stroke();
 
-          // Reroute Path Tag
-          ctx.fillStyle = "#06B6D4";
-          ctx.font = "bold 9.5px monospace";
-          ctx.fillText("NEXT SHORTEST DOCK PATH [RE-MAPPED]", pathMidX + 32, pathMidY - 6);
+          // Sleek HUD Clearance Notification Tag
+          const tagMsg = isRerouting
+            ? `L: ${isLeftClear ? "CLEAR" : "BLOCKED"} · R: ${isRightClear ? "CLEAR" : "BLOCKED"} ➔ REROUTE ${hudReroute}`
+            : "NEXT SHORTEST DOCK PATH";
+          ctx.fillStyle = "rgba(15, 23, 42, 0.9)";
+          ctx.strokeStyle = "#06B6D4";
+          ctx.lineWidth = 1;
+          const msgW = ctx.measureText(tagMsg).width + 16;
+          ctx.beginPath();
+          ctx.roundRect(pathMidX - msgW / 2, pathMidY - 26, msgW, 18, 4);
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.fillStyle = "#38BDF8";
+          ctx.font = "bold 8.5px monospace";
+          ctx.fillText(tagMsg, pathMidX - msgW / 2 + 8, pathMidY - 14);
         } else {
-          // Standard center trajectory line
+          // Standard center trajectory line (Emerald green with delicate dashes)
           ctx.strokeStyle = primaryRailColor;
-          ctx.lineWidth = 2;
-          ctx.setLineDash([6, 6]);
+          ctx.lineWidth = 2.0;
+          ctx.setLineDash([5, 8]);
+          ctx.lineDashOffset = -t * 18;
           ctx.beginPath();
           ctx.moveTo(pathStartX, pathStartY);
           ctx.quadraticCurveTo(pathMidX, pathMidY, pathEndX, pathEndY);
@@ -541,7 +582,7 @@ export default function RoboticCameraHUD({
         // ============================================================
         // 5. STATION APRILTAG DOCKING MARKER & 3D AXES
         // ============================================================
-        const isAligned = distanceM <= 0.18;
+        const isAligned = distanceM <= 0.03;
         ctx.strokeStyle = isAligned ? "#10B981" : isCriticalProximity ? "#FF1F1F" : "#8C6D31";
         ctx.lineWidth = 2.5;
         ctx.strokeRect(tagX, tagY, tagW, tagH);
@@ -623,6 +664,53 @@ export default function RoboticCameraHUD({
           ctx.font = "8.5px monospace";
           ctx.fillText(`MOTION: ACTIVE SENSOR SYNC | CV READY`, 24, 58);
         }
+
+        // Real-Time Collision Reading Distance on HUD
+        if (obstacleTelemetry && typeof obstacleTelemetry.min_distance_m === "number" && obstacleTelemetry.min_distance_m < 900) {
+          const colDist = obstacleTelemetry.min_distance_m;
+          const isHazard = obstacleTelemetry.corridor_blocked || colDist <= 0.45;
+          const colX = w - 210;
+          const colY = 16;
+          ctx.fillStyle = isHazard ? "rgba(220, 38, 38, 0.92)" : "rgba(16, 185, 129, 0.90)";
+          ctx.strokeStyle = "#FFFFFF";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.roundRect(colX, colY, 195, 34, 8);
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.fillStyle = "#FFFFFF";
+          ctx.font = "bold 10px monospace";
+          ctx.fillText(`COLLISION RADAR: ${colDist.toFixed(2)}m`, colX + 12, colY + 16);
+          ctx.font = "bold 9px system-ui, sans-serif";
+          ctx.fillText(isHazard ? "HAZARD DETECTED · BRAKE" : "PATH CLEAR FOR DOCKING", colX + 12, colY + 28);
+        }
+
+        // CHARGED Celebratory Center HUD Badge
+        if (isCharged || distanceM <= 0.03) {
+          const bw = 360;
+          const bh = 68;
+          const bx = w / 2 - bw / 2;
+          const by = h * 0.48 - bh / 2;
+
+          ctx.fillStyle = "rgba(16, 185, 129, 0.95)";
+          ctx.strokeStyle = "#FFFFFF";
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.roundRect(bx, by, bw, bh, 14);
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.fillStyle = "#FFFFFF";
+          ctx.font = "bold 18px system-ui, -apple-system, sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText("⚡ CHARGED (100%)", w / 2, by + 30);
+
+          ctx.font = "bold 10.5px monospace";
+          ctx.fillStyle = "#D1FAE5";
+          ctx.fillText("ROBOT AT CHARGING PORT · DOCK LOCKED", w / 2, by + 50);
+          ctx.textAlign = "start";
+        }
       }
 
       animRef.current = requestAnimationFrame(renderOverlay);
@@ -643,6 +731,8 @@ export default function RoboticCameraHUD({
     effectiveIsPhoneConnected,
     effectivePhoneFrame,
     mobileGpsPose,
+    isCharged,
+    obstacleTelemetry,
   ]);
 
   return (

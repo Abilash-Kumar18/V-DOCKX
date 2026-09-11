@@ -13,16 +13,20 @@ export default function DockingMap2D({
   destinationPoint = null,
   onDestinationChange = null,
   isCharging = false,
+  isCharged = false,
+  distToDock: propDistToDock = null,
+  obstacleTelemetry = null,
 }) {
   const canvasRef = useRef(null);
   const animFrameRef = useRef(null);
+  const [isHovered, setIsHovered] = useState(false);
 
   // Active Destination Point (defaults to standard charging dock anchor)
   const [internalDest, setInternalDest] = useState({ x: 1.0, y: 0.35 });
   const activeDest = destinationPoint || internalDest;
 
   // Active robot position (prioritizes live mobile sensor if phone is connected)
-  const currentPos = mobileGpsPose?.x ? mobileGpsPose : robotPose;
+  const currentPos = mobileGpsPose?.x !== undefined ? mobileGpsPose : robotPose;
 
   // Fixed Arena Obstacle Zones (with safety clearance radii)
   const obstacleZones = [
@@ -31,15 +35,15 @@ export default function DockingMap2D({
   ];
 
   // Calculate distance to active destination
-  const distToDock = Math.hypot(currentPos.x - activeDest.x, currentPos.y - activeDest.y);
+  const distToDock = propDistToDock !== null ? propDistToDock : Math.hypot(currentPos.x - activeDest.x, currentPos.y - activeDest.y);
   const isCriticalProximity = distToDock <= 0.45;
-  const isDockedAndCharging = distToDock <= 0.25 || isCharging;
+  const isDockedAndCharging = distToDock <= 0.25 || isCharging || isCharged;
 
   // Check if robot is near or inside obstacle collision boundary
   const collidedObstacle = obstacleZones.find(
     (obs) => Math.hypot(currentPos.x - obs.x, currentPos.y - obs.y) <= obs.radius + 0.10
   );
-  const isObstacleHazard = !!collidedObstacle;
+  const isObstacleHazard = !!collidedObstacle || !!obstacleTelemetry?.corridor_blocked;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -62,19 +66,19 @@ export default function DockingMap2D({
       ctx.fillStyle = "#FAF7F2";
       ctx.fillRect(0, 0, w, h);
 
-      // Floor depth vignette
+      // Floor depth subtle radial vignette
       const floorGlow = ctx.createRadialGradient(w / 2, h / 2, 40, w / 2, h / 2, w * 0.7);
-      floorGlow.addColorStop(0, "rgba(255, 255, 255, 0.9)");
-      floorGlow.addColorStop(1, "rgba(236, 229, 218, 0.6)");
+      floorGlow.addColorStop(0, "rgba(255, 255, 255, 0.95)");
+      floorGlow.addColorStop(1, "rgba(236, 229, 218, 0.65)");
       ctx.fillStyle = floorGlow;
       ctx.fillRect(0, 0, w, h);
 
       // 2. Arena Boundary Walls
       ctx.strokeStyle = "#1A1715";
-      ctx.lineWidth = 4;
+      ctx.lineWidth = 3.5;
       ctx.strokeRect(10, 10, w - 20, h - 20);
 
-      // Metrology millimeter measurement ticks along borders
+      // Millimeter measurement ticks along borders
       ctx.fillStyle = "#8C6D31";
       ctx.font = "9px monospace";
       for (let m = 0.5; m < 2.0; m += 0.5) {
@@ -186,48 +190,15 @@ export default function DockingMap2D({
       const midY = (startY + endY) / 2;
       const curveOffset = (currentPos.x - activeDest.x) * 35;
 
-      // Color logic:
-      // Obstacle Hazard -> Crimson Alert
-      // Critical Proximity -> Amber / Red
-      // Docked -> Brilliant Emerald
-      // Clear -> Emerald
-      const pathColor = isObstacleHazard
-        ? "#EF4444"
-        : isDockedAndCharging
+      ctx.strokeStyle = isDockedAndCharging
         ? "#10B981"
+        : isObstacleHazard
+        ? "#DC2626"
         : isCriticalProximity
         ? "#F59E0B"
-        : "#10B981";
-
-      const pathGlow = isObstacleHazard
-        ? "rgba(239, 68, 68, 0.45)"
-        : isDockedAndCharging
-        ? "rgba(16, 185, 129, 0.55)"
-        : isCriticalProximity
-        ? "rgba(245, 158, 11, 0.35)"
-        : "rgba(16, 185, 129, 0.22)";
-
-      // Draw Trajectory Corridor
-      ctx.strokeStyle = pathGlow;
-      ctx.lineWidth = 14;
-      ctx.beginPath();
-      ctx.moveTo(startX, startY);
-      ctx.quadraticCurveTo(midX + curveOffset, midY, endX, endY);
-      ctx.stroke();
-
-      // Active Trajectory Line
-      ctx.strokeStyle = pathColor;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(startX, startY);
-      ctx.quadraticCurveTo(midX + curveOffset, midY, endX, endY);
-      ctx.stroke();
-
-      // Flowing dashed guide beam
-      ctx.strokeStyle = "#FFFFFF";
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([6, 8]);
-      ctx.lineDashOffset = -t * 15;
+        : "#FF3820";
+      ctx.lineWidth = isDockedAndCharging ? 3 : 2;
+      ctx.setLineDash([6, 4]);
       ctx.beginPath();
       ctx.moveTo(startX, startY);
       ctx.quadraticCurveTo(midX + curveOffset, midY, endX, endY);
@@ -240,9 +211,9 @@ export default function DockingMap2D({
       const rawAngle = typeof currentPos.theta === "number" ? currentPos.theta : (currentPos.heading ?? 0);
       const thetaRad = (rawAngle * Math.PI) / 180;
 
-      // Dynamic Motion Trail when phone is physically moving
+      // Motion Trail or Heading Nose
       if (mobileMotion?.isMoving) {
-        ctx.strokeStyle = "rgba(16, 185, 129, 0.45)";
+        ctx.strokeStyle = "rgba(255, 56, 32, 0.4)";
         ctx.lineWidth = 4;
         ctx.beginPath();
         ctx.moveTo(robotX, robotY);
@@ -458,7 +429,7 @@ export default function DockingMap2D({
         {isObstacleHazard && !isDockedAndCharging && (
           <div className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-red-600 text-white text-[11px] font-mono font-bold flex items-center gap-2 shadow-xl backdrop-blur-xs animate-pulse pointer-events-none">
             <ShieldAlert className="w-3.5 h-3.5" />
-            <span>OBSTACLE PROXIMITY ALERT ({collidedObstacle?.label})</span>
+            <span>OBSTACLE PROXIMITY ALERT ({collidedObstacle?.label || "CORRIDOR BLOCKED"})</span>
           </div>
         )}
       </div>
