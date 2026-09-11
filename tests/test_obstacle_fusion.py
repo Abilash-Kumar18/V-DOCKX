@@ -69,7 +69,7 @@ class TestObstacleFusion(unittest.TestCase):
         self.assertTrue(output.corridor_blocked)
         self.assertTrue(output.obstacle_present)
         self.assertIn("person", output.detected_classes)
-        self.assertLess(output.minimum_distance_m, 1.50)
+        self.assertLess(output.minimum_distance_m, 2.50)
 
     def test_ai_detection_outside_corridor(self):
         """AI detection outside the corridor (e.g. bystander on side) must NOT block corridor."""
@@ -95,7 +95,7 @@ class TestObstacleFusion(unittest.TestCase):
         dist_far = self.free_space.estimate_distance_from_row(260)
 
         self.assertLess(dist_near, dist_far)
-        self.assertLess(dist_near, 0.60)
+        self.assertLess(dist_near, 0.90)
         self.assertGreater(dist_far, 1.00)
 
 

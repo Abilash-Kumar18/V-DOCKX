@@ -1,21 +1,32 @@
-// In-memory frame and mobile pose broadcast buffer connecting Mobile Phone to PC HUD & 2D Map
+﻿// In-memory frame, mobile pose, and collision obstacle broadcast buffer connecting Mobile Phone to PC HUD & 2D Map
 
 const globalBroadcast = globalThis.__vdockx_broadcaster || {
   latestFrame: null,
   mobilePose: null,
+  latestObstacle: {
+    corridor_blocked: false,
+    min_distance_m: 999.0,
+    detected_obstacles: [],
+  },
   timestamp: 0,
   subscribers: new Set(),
 };
 
 globalThis.__vdockx_broadcaster = globalBroadcast;
 
-export function updateBroadcastData({ frame, pose }) {
+export function updateBroadcastData({ frame, pose, obstacle }) {
   if (frame) {
     globalBroadcast.latestFrame = frame;
   }
   if (pose) {
     globalBroadcast.mobilePose = {
       ...pose,
+      timestamp: Date.now(),
+    };
+  }
+  if (obstacle) {
+    globalBroadcast.latestObstacle = {
+      ...obstacle,
       timestamp: Date.now(),
     };
   }
@@ -27,6 +38,7 @@ export function updateBroadcastData({ frame, pose }) {
       send({
         frame: globalBroadcast.latestFrame,
         pose: globalBroadcast.mobilePose,
+        obstacle: globalBroadcast.latestObstacle,
         timestamp: globalBroadcast.timestamp,
       });
     } catch (e) {
@@ -40,6 +52,7 @@ export function getLatestBroadcastData() {
   return {
     frame: globalBroadcast.latestFrame,
     pose: isFresh ? globalBroadcast.mobilePose : null,
+    obstacle: isFresh ? globalBroadcast.latestObstacle : { corridor_blocked: false, min_distance_m: 999.0, detected_obstacles: [] },
     timestamp: globalBroadcast.timestamp,
     isFresh,
   };

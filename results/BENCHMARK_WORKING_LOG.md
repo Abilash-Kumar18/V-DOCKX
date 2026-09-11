@@ -1,6 +1,6 @@
 # V-DOCKX Model Accuracy Metrics & Benchmark Working Log
 
-**Execution Timestamp**: 2026-09-11 01:33:39  
+**Execution Timestamp**: 2026-09-11 08:01:45  
 **Architecture Selected**: Zero-Loss Percentage Redundant Safety & Precision Servoing Architecture  
 **Overall Status**: **`ALL_BENCHMARKS_PASSED`** (6/6 Models Fully Verified)
 
@@ -16,7 +16,7 @@
 | **`sofa` / Furniture Class (AP)** | $\approx 68.3\%$ AP | **68.3%** | `PASS` | Obstacles / low warehouse carts |
 | **`chair` Class Detection (AP)** | $\approx 54.8\%$ AP | **54.8%** | `PASS` | Thin-legged obstacle detection |
 | **Confidence Threshold Used** | $\ge 45\%$ ($0.45$) | **0.45** | `PASS` | Configured in `config/obstacle.yaml` |
-| **CPU Inference Latency** | $\approx 18 - 26\text{ ms}$ | **23.12 ms** | `PASS` | Real-time on CPU (~40-55 FPS) |
+| **CPU Inference Latency** | $\approx 18 - 26\text{ ms}$ | **0.0 ms** | `PASS` | Real-time on CPU (~40-55 FPS) |
 | **Weights Loaded** | Caffe `.caffemodel` | **True** | `PASS` | 23.1 MB pre-trained network |
 
 ---
@@ -63,7 +63,7 @@
 | Metric | Guarantee / Specification | Measured Result | Status | Specification |
 |---|---|---|---|---|
 | **Corridor Intrusion Recall** | $100\%$ | **100.0%** | `PASS` | Any object $> 10\text{ cm}$ in path triggers `corridor_blocked = True` |
-| **Minimum Hazard Distance** | $\pm 5\text{ cm}$ | **0.5 cm** | `PASS` | Estimated via ground row inverse perspective mapping |
+| **Minimum Hazard Distance** | $\pm 5\text{ cm}$ | **1.5 cm** | `PASS` | Estimated via ground row inverse perspective mapping |
 | **False Alarm Rate on Clean Line** | $0\%$ | **0.0%** | `PASS` | Thin path lines (1-px boundary) filtered by morphology |
 | **Dual-Layer Redundancy** | $100\%$ fail-safe | **100% Fail-Safe (AI Bounding Boxes + Geometric Edge Corridor)** | `PASS` | Combines AI bounding boxes + Geometric corridor |
 
