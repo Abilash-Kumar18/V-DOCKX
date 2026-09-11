@@ -1,40 +1,45 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Zap, Navigation, MapPin, Compass, Play, RotateCcw, Smartphone, ShieldCheck, AlertTriangle } from "lucide-react";
+import { Zap, Navigation, MapPin, Compass, Play, RotateCcw, Smartphone, ShieldCheck, AlertTriangle, ShieldAlert, Sparkles } from "lucide-react";
 
 export default function DockingMap2D({
   robotPose = { x: 1.15, y: 1.65, theta: -84 }, // meters (0-2m) and degrees
   onRobotMove,
   isDocking = false,
   mobileGpsPose = null,
+  mobileMotion = null,
   isPhoneConnected = false,
+  destinationPoint = null,
+  onDestinationChange = null,
+  isCharging = false,
 }) {
   const canvasRef = useRef(null);
   const animFrameRef = useRef(null);
 
-  // Active position (prioritizes live mobile GPS sensor if phone is broadcasting)
+  // Active Destination Point (defaults to standard charging dock anchor)
+  const [internalDest, setInternalDest] = useState({ x: 1.0, y: 0.35 });
+  const activeDest = destinationPoint || internalDest;
+
+  // Active robot position (prioritizes live mobile sensor if phone is connected)
   const currentPos = mobileGpsPose?.x ? mobileGpsPose : robotPose;
 
-  // Fixed Real-World Charging Station Anchor (GPS Anchor: 42.3601° N, 71.0589° W)
-  const powerStation = {
-    x: 1.0,
-    y: 0.35,
-    width: 0.36,
-    height: 0.16,
-    lat: "42.3601° N",
-    lng: "71.0589° W",
-  };
-
-  // Fixed Arena Obstacle Zones (to demonstrate dynamic avoidance & collision boundary)
+  // Fixed Arena Obstacle Zones (with safety clearance radii)
   const obstacleZones = [
     { x: 0.35, y: 0.95, radius: 0.18, label: "OBSTACLE A" },
     { x: 1.65, y: 1.15, radius: 0.18, label: "OBSTACLE B" },
   ];
 
-  // Calculate distance to charging dock
-  const distToDock = Math.sqrt((currentPos.x - powerStation.x) ** 2 + (currentPos.y - powerStation.y) ** 2);
+  // Calculate distance to active destination
+  const distToDock = Math.hypot(currentPos.x - activeDest.x, currentPos.y - activeDest.y);
   const isCriticalProximity = distToDock <= 0.45;
+  const isDockedAndCharging = distToDock <= 0.25 || isCharging;
+
+  // Check if robot is near or inside obstacle collision boundary
+  const collidedObstacle = obstacleZones.find(
+    (obs) => Math.hypot(currentPos.x - obs.x, currentPos.y - obs.y) <= obs.radius + 0.10
+  );
+  const isObstacleHazard = !!collidedObstacle;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -53,7 +58,7 @@ export default function DockingMap2D({
       const scaleX = w / 2.0;
       const scaleY = h / 2.0;
 
-      // 1. Realistic Industrial Concrete / Architectural Floor Base
+      // 1. Industrial Concrete Floor Base
       ctx.fillStyle = "#FAF7F2";
       ctx.fillRect(0, 0, w, h);
 
@@ -64,7 +69,7 @@ export default function DockingMap2D({
       ctx.fillStyle = floorGlow;
       ctx.fillRect(0, 0, w, h);
 
-      // 2. Realistic Arena Boundary Walls
+      // 2. Arena Boundary Walls
       ctx.strokeStyle = "#1A1715";
       ctx.lineWidth = 4;
       ctx.strokeRect(10, 10, w - 20, h - 20);
@@ -73,13 +78,11 @@ export default function DockingMap2D({
       ctx.fillStyle = "#8C6D31";
       ctx.font = "9px monospace";
       for (let m = 0.5; m < 2.0; m += 0.5) {
-        // Top edge labels
         ctx.fillText(`${m}m`, m * scaleX - 8, 22);
-        // Left edge labels
         ctx.fillText(`${m}m`, 14, m * scaleY + 3);
       }
 
-      // Subtle 25cm Grid Lines
+      // 25cm Grid Lines
       ctx.lineWidth = 0.75;
       ctx.strokeStyle = "rgba(140, 109, 49, 0.12)";
       for (let x = 0; x <= 2.0; x += 0.25) {
@@ -95,92 +98,116 @@ export default function DockingMap2D({
         ctx.stroke();
       }
 
-      // 3. Obstacle Exclusion Zones (with warning stripes)
+      // 3. Obstacle Exclusion Zones (with dynamic warning pulses)
       obstacleZones.forEach((obs) => {
         const obsX = obs.x * scaleX;
         const obsY = obs.y * scaleY;
         const obsR = obs.radius * scaleX;
 
-        ctx.fillStyle = "rgba(239, 68, 68, 0.08)";
-        ctx.strokeStyle = "rgba(239, 68, 68, 0.5)";
-        ctx.lineWidth = 1.5;
+        const isThisObsHazard = collidedObstacle?.label === obs.label;
+
+        // Danger Aura
+        ctx.fillStyle = isThisObsHazard
+          ? `rgba(239, 68, 68, ${0.30 + 0.15 * Math.sin(t * 8)})`
+          : "rgba(239, 68, 68, 0.08)";
+        ctx.beginPath();
+        ctx.arc(obsX, obsY, obsR + (isThisObsHazard ? 8 : 0), 0, Math.PI * 2);
+        ctx.fill();
+
+        // Warning Border
+        ctx.strokeStyle = isThisObsHazard ? "#DC2626" : "rgba(239, 68, 68, 0.55)";
+        ctx.lineWidth = isThisObsHazard ? 3 : 1.5;
         ctx.beginPath();
         ctx.arc(obsX, obsY, obsR, 0, Math.PI * 2);
-        ctx.fill();
         ctx.stroke();
 
-        ctx.fillStyle = "#991B1B";
+        // Pulsing radar ring on active obstacle hazard
+        if (isThisObsHazard) {
+          const pulseR = obsR + ((t * 20) % 25);
+          ctx.strokeStyle = `rgba(239, 68, 68, ${Math.max(0, 1 - (pulseR - obsR) / 25)})`;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(obsX, obsY, pulseR, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        // Obstacle Label
+        ctx.fillStyle = isThisObsHazard ? "#DC2626" : "#EF4444";
         ctx.font = "bold 8px monospace";
-        ctx.fillText(obs.label, obsX - 24, obsY + 3);
+        ctx.fillText(obs.label, obsX - 22, obsY + 3);
       });
 
-      // 4. Fixed Charging Station Docking Bay
-      const psX = powerStation.x * scaleX;
-      const psY = powerStation.y * scaleY;
-      const psW = powerStation.width * scaleX;
-      const psH = powerStation.height * scaleY;
+      // 4. Destination / Charging Dock
+      const psX = activeDest.x * scaleX;
+      const psY = activeDest.y * scaleY;
+      const psW = 0.36 * scaleX;
+      const psH = 0.16 * scaleY;
 
-      // Docking Bay Parking Stalls (Painted yellow/white boundary lines like in parking cars)
+      // Dock approach alignment guide rails
       ctx.strokeStyle = "#D4AF37";
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      // Left parking line
-      ctx.moveTo((powerStation.x - 0.28) * scaleX, (powerStation.y - 0.1) * scaleY);
-      ctx.lineTo((powerStation.x - 0.28) * scaleX, (powerStation.y + 0.35) * scaleY);
-      // Right parking line
-      ctx.moveTo((powerStation.x + 0.28) * scaleX, (powerStation.y - 0.1) * scaleY);
-      ctx.lineTo((powerStation.x + 0.28) * scaleX, (powerStation.y + 0.35) * scaleY);
-      ctx.stroke();
-
-      // Pulsing electromagnetic target rings around dock
-      const pulseRadius = ((t * 22) % 35) + 10;
-      ctx.strokeStyle = `rgba(255, 56, 32, ${Math.max(0, 1 - pulseRadius / 45)})`;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.arc(psX, psY, pulseRadius, 0, Math.PI * 2);
+      ctx.moveTo(psX - psW / 2 - 12, psY - 10);
+      ctx.lineTo(psX - psW / 2 - 12, psY + psH + 40);
+      ctx.moveTo(psX + psW / 2 + 12, psY - 10);
+      ctx.lineTo(psX + psW / 2 + 12, psY + psH + 40);
       ctx.stroke();
 
-      // Charging dock body (deep slate chassis)
-      ctx.fillStyle = "#1E293B";
-      ctx.strokeStyle = "#C5A059";
-      ctx.lineWidth = 2;
+      // Charging Dock Body
+      ctx.fillStyle = isDockedAndCharging ? "#059669" : "#1E293B";
+      ctx.strokeStyle = isDockedAndCharging ? "#10B981" : "#C5A059";
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
       ctx.roundRect(psX - psW / 2, psY - psH / 2, psW, psH, 6);
       ctx.fill();
       ctx.stroke();
 
       // Brass Contact Pins
-      ctx.fillStyle = "#D4AF37";
+      ctx.fillStyle = isDockedAndCharging ? "#34D399" : "#D4AF37";
       ctx.fillRect(psX - 16, psY + psH / 2 - 4, 8, 6);
       ctx.fillRect(psX + 8, psY + psH / 2 - 4, 8, 6);
 
-      // Docking Target Label & GPS Anchor
+      // Docking Target Label
       ctx.fillStyle = "#FFFFFF";
       ctx.font = "bold 9px sans-serif";
-      ctx.fillText("CHARGING DOCK", psX - 38, psY - 2);
-      ctx.fillStyle = "#94A3B8";
+      ctx.fillText(isDockedAndCharging ? "CHARGING TERMINAL" : "DESTINATION DOCK", psX - 42, psY - 2);
+      ctx.fillStyle = isDockedAndCharging ? "#6EE7B7" : "#94A3B8";
       ctx.font = "8px monospace";
-      ctx.fillText("FIXED DOCK [1.0m, 0.35m]", psX - 52, psY + 10);
+      ctx.fillText(`TARGET [${activeDest.x.toFixed(2)}m, ${activeDest.y.toFixed(2)}m]`, psX - 48, psY + 10);
 
-      // 5. Dynamic Shortest-Path Trajectory Line (Recalculates in real time!)
-      // Path connects current robot/phone position to docking target (psX, psY + 20)
+      // 5. Dynamic Trajectory Line around Obstacles
       const startX = currentPos.x * scaleX;
       const startY = currentPos.y * scaleY;
       const endX = psX;
       const endY = psY + 24;
 
-      // Compute curved Bézier control point for shortest path around obstacles
+      // Calculate avoidance curvature
       const midX = (startX + endX) / 2;
       const midY = (startY + endY) / 2;
-      const curveOffset = (currentPos.x - powerStation.x) * 40;
+      const curveOffset = (currentPos.x - activeDest.x) * 35;
 
-      // Color logic (Automotive Parking Line behavior):
-      // If critical proximity (< 0.45m) or close to obstacle: Turns RED!
-      // Otherwise safe emerald or gold
-      const pathColor = isCriticalProximity ? "#FF1F1F" : "#10B981";
-      const pathGlow = isCriticalProximity ? "rgba(255, 31, 31, 0.4)" : "rgba(16, 185, 129, 0.25)";
+      // Color logic:
+      // Obstacle Hazard -> Crimson Alert
+      // Critical Proximity -> Amber / Red
+      // Docked -> Brilliant Emerald
+      // Clear -> Emerald
+      const pathColor = isObstacleHazard
+        ? "#EF4444"
+        : isDockedAndCharging
+        ? "#10B981"
+        : isCriticalProximity
+        ? "#F59E0B"
+        : "#10B981";
 
-      // Draw Shortest Path Trajectory Corridor
+      const pathGlow = isObstacleHazard
+        ? "rgba(239, 68, 68, 0.45)"
+        : isDockedAndCharging
+        ? "rgba(16, 185, 129, 0.55)"
+        : isCriticalProximity
+        ? "rgba(245, 158, 11, 0.35)"
+        : "rgba(16, 185, 129, 0.22)";
+
+      // Draw Trajectory Corridor
       ctx.strokeStyle = pathGlow;
       ctx.lineWidth = 14;
       ctx.beginPath();
@@ -207,14 +234,32 @@ export default function DockingMap2D({
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // 6. Active Robot / Mobile GPS Point Marker
+      // 6. Active Robot / Mobile Phone Marker
       const robotX = currentPos.x * scaleX;
       const robotY = currentPos.y * scaleY;
-      const thetaRad = ((currentPos.theta ?? -90) * Math.PI) / 180;
+      const rawAngle = typeof currentPos.theta === "number" ? currentPos.theta : (currentPos.heading ?? 0);
+      const thetaRad = (rawAngle * Math.PI) / 180;
 
-      // GPS Radar Ring Pulse around active position
+      // Dynamic Motion Trail when phone is physically moving
+      if (mobileMotion?.isMoving) {
+        ctx.strokeStyle = "rgba(16, 185, 129, 0.45)";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(robotX, robotY);
+        ctx.lineTo(
+          robotX - Math.sin(thetaRad) * 22,
+          robotY + Math.cos(thetaRad) * 22
+        );
+        ctx.stroke();
+      }
+
+      // Radar Ring Pulse around active position
       const gpsPulse = ((t * 18) % 28) + 12;
-      ctx.strokeStyle = isPhoneConnected
+      ctx.strokeStyle = isDockedAndCharging
+        ? `rgba(16, 185, 129, ${Math.max(0, 1 - gpsPulse / 35)})`
+        : isObstacleHazard
+        ? `rgba(239, 68, 68, ${Math.max(0, 1 - gpsPulse / 35)})`
+        : isPhoneConnected
         ? `rgba(16, 185, 129, ${Math.max(0, 1 - gpsPulse / 35)})`
         : `rgba(255, 56, 32, ${Math.max(0, 1 - gpsPulse / 35)})`;
       ctx.lineWidth = 1.5;
@@ -222,18 +267,24 @@ export default function DockingMap2D({
       ctx.arc(robotX, robotY, gpsPulse, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Robot / Mobile Chassis Body
+      // Robot Chassis Body
       ctx.save();
       ctx.translate(robotX, robotY);
-      ctx.rotate(thetaRad + Math.PI / 2);
+      ctx.rotate(thetaRad);
 
       // Chassis shadow
-      ctx.shadowColor = "rgba(0,0,0,0.18)";
+      ctx.shadowColor = "rgba(0,0,0,0.2)";
       ctx.shadowBlur = 10;
       ctx.shadowOffsetY = 4;
 
-      // Outer Chassis (Vermillion with gilded border)
-      ctx.fillStyle = isCriticalProximity ? "#FF1F1F" : "#FF3820";
+      // Outer Chassis Body
+      ctx.fillStyle = isDockedAndCharging
+        ? "#059669"
+        : isObstacleHazard
+        ? "#DC2626"
+        : isCriticalProximity
+        ? "#FF1F1F"
+        : "#FF3820";
       ctx.strokeStyle = "#C5A059";
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -249,61 +300,102 @@ export default function DockingMap2D({
       ctx.fillRect(-22, 6, 4, 12);
       ctx.fillRect(18, 6, 4, 12);
 
-      // Forward Directional Chevron
-      ctx.strokeStyle = "#FFFFFF";
-      ctx.lineWidth = 2.5;
+      // Optical Camera Lens indicator
+      ctx.fillStyle = "#0284C7";
       ctx.beginPath();
-      ctx.moveTo(-7, -4);
-      ctx.lineTo(0, -14);
-      ctx.lineTo(7, -4);
+      ctx.arc(0, -22, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Center Chevron Forward Indicator
+      ctx.strokeStyle = "#FFFFFF";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-6, 2);
+      ctx.lineTo(0, -6);
+      ctx.lineTo(6, 2);
       ctx.stroke();
 
       ctx.restore();
 
-      // Floating Live Coordinate Badge
-      ctx.fillStyle = "rgba(26, 23, 21, 0.85)";
-      ctx.beginPath();
-      ctx.roundRect(robotX - 45, robotY - 42, 90, 18, 4);
-      ctx.fill();
-      ctx.fillStyle = "#FFFFFF";
-      ctx.font = "bold 8.5px monospace";
+      // 7. ELECTRICAL CHARGING ARCS (Lightning Animation when docked)
+      if (isDockedAndCharging) {
+        ctx.strokeStyle = "#34D399";
+        ctx.lineWidth = 2.5;
+        ctx.shadowColor = "#10B981";
+        ctx.shadowBlur = 12;
+
+        // Left arc
+        ctx.beginPath();
+        ctx.moveTo(robotX - 8, robotY - 14);
+        ctx.lineTo(
+          (robotX - 8 + psX - 12) / 2 + (Math.random() - 0.5) * 8,
+          (robotY - 14 + psY + psH / 2) / 2 + (Math.random() - 0.5) * 8
+        );
+        ctx.lineTo(psX - 12, psY + psH / 2);
+        ctx.stroke();
+
+        // Right arc
+        ctx.beginPath();
+        ctx.moveTo(robotX + 8, robotY - 14);
+        ctx.lineTo(
+          (robotX + 8 + psX + 12) / 2 + (Math.random() - 0.5) * 8,
+          (robotY - 14 + psY + psH / 2) / 2 + (Math.random() - 0.5) * 8
+        );
+        ctx.lineTo(psX + 12, psY + psH / 2);
+        ctx.stroke();
+
+        ctx.shadowColor = "transparent";
+      }
+
+      // Robot Label Tag
+      ctx.fillStyle = "#1E293B";
+      ctx.font = "bold 9px monospace";
       ctx.fillText(
-        isPhoneConnected ? `PHONE GPS: ${distToDock.toFixed(2)}m` : `ROBOT: ${distToDock.toFixed(2)}m`,
-        robotX - 40,
-        robotY - 30
+        isDockedAndCharging
+          ? `ROBOT: CHARGING ⚡`
+          : mobileMotion?.isMoving
+          ? `PHONE ROBOT: ${(distToDock * 100).toFixed(0)}cm`
+          : `ROBOT: ${distToDock.toFixed(2)}m`,
+        robotX - 32,
+        robotY + 34
       );
+
+      animFrameRef.current = requestAnimationFrame(render);
     };
 
     render();
-    const loop = () => {
-      render();
-      animFrameRef.current = requestAnimationFrame(loop);
-    };
-    animFrameRef.current = requestAnimationFrame(loop);
 
     return () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [currentPos, isDocking, isPhoneConnected, isCriticalProximity, distToDock]);
+  }, [currentPos, distToDock, isCriticalProximity, isDockedAndCharging, isObstacleHazard, isPhoneConnected, activeDest, collidedObstacle, mobileMotion]);
 
-  // Click on map to reposition robot or set target point
+  // Click on map to set custom Destination Point or manual repositioning
   const handleCanvasClick = (e) => {
-    if (!onRobotMove || isDocking) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
+
     const rect = canvas.getBoundingClientRect();
-    const clickX = ((e.clientX - rect.left) / rect.width) * 2.0;
-    const clickY = ((e.clientY - rect.top) / rect.height) * 2.0;
+    const clickPxX = e.clientX - rect.left;
+    const clickPxY = e.clientY - rect.top;
 
-    const dx = powerStation.x - clickX;
-    const dy = powerStation.y - clickY;
-    const thetaDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+    const clickMeterX = Number(Math.max(0.2, Math.min(1.8, (clickPxX / rect.width) * 2.0)).toFixed(2));
+    const clickMeterY = Number(Math.max(0.2, Math.min(1.8, (clickPxY / rect.height) * 2.0)).toFixed(2));
 
-    onRobotMove({
-      x: Math.max(0.15, Math.min(1.85, Number(clickX.toFixed(3)))),
-      y: Math.max(0.38, Math.min(1.85, Number(clickY.toFixed(3)))),
-      theta: Math.round(thetaDeg),
-    });
+    // Update destination
+    setInternalDest({ x: clickMeterX, y: clickMeterY });
+    if (onDestinationChange) {
+      onDestinationChange({ x: clickMeterX, y: clickMeterY });
+    }
+
+    // Also update backend destination
+    try {
+      fetch("http://localhost:8000/api/destination", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ x: clickMeterX, y: clickMeterY }),
+      }).catch(() => {});
+    } catch (_) {}
   };
 
   return (
@@ -313,7 +405,13 @@ export default function DockingMap2D({
         <div className="flex items-center gap-2">
           <div
             className={`w-2.5 h-2.5 rounded-full ${
-              isCriticalProximity ? "bg-red-600 animate-ping" : "bg-emerald-500 animate-pulse"
+              isDockedAndCharging
+                ? "bg-emerald-500 animate-ping"
+                : isObstacleHazard
+                ? "bg-red-600 animate-ping"
+                : isCriticalProximity
+                ? "bg-amber-500 animate-pulse"
+                : "bg-emerald-500 animate-pulse"
             }`}
           />
           <span className="text-xs font-sans font-bold text-[#1A1715] tracking-wide">
@@ -321,7 +419,7 @@ export default function DockingMap2D({
           </span>
           {isPhoneConnected && (
             <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold">
-              ● PHONE GPS LINKED
+              ● PHONE MOTION SYNCED
             </span>
           )}
         </div>
@@ -329,7 +427,7 @@ export default function DockingMap2D({
         <div className="flex items-center gap-3 text-[11px] font-sans text-stone-600">
           <span className="flex items-center gap-1 font-medium text-stone-700">
             <MapPin className="w-3.5 h-3.5 text-[#D4AF37]" />
-            Fixed Dock: [1.0m, 0.35m]
+            Target: [{activeDest.x.toFixed(2)}m, {activeDest.y.toFixed(2)}m]
           </span>
           <span className="flex items-center gap-1 font-bold text-[#1A1715]">
             <Navigation className="w-3.5 h-3.5 text-[#FF3820]" />
@@ -338,7 +436,7 @@ export default function DockingMap2D({
         </div>
       </div>
 
-      {/* Map Canvas with Light Background */}
+      {/* Map Canvas with Click-to-Set Destination hint */}
       <div className="relative flex-1 min-h-[320px] w-full bg-[#FAF7F2] flex items-center justify-center p-2">
         <canvas
           ref={canvasRef}
@@ -346,16 +444,29 @@ export default function DockingMap2D({
           height={500}
           onClick={handleCanvasClick}
           className="w-full h-full max-h-[480px] object-contain cursor-crosshair rounded-xl border border-[#C5A059]/30 shadow-inner"
-          title="Click to reposition or move phone to sync GPS point"
+          title="Click to set new Destination Point or move phone physically"
         />
 
-        {/* Proximity Warning Banner on Map */}
-        {isCriticalProximity && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-red-600/90 text-white text-[11px] font-mono font-bold flex items-center gap-2 shadow-lg backdrop-blur-xs animate-bounce pointer-events-none">
-            <AlertTriangle className="w-3.5 h-3.5" />
-            <span>CRITICAL PROXIMITY ({distToDock.toFixed(2)}m) - PATH TURNING RED</span>
+        {/* Dynamic Warning / Status Banners */}
+        {isDockedAndCharging && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-emerald-600 text-white text-[11px] font-mono font-bold flex items-center gap-2 shadow-xl backdrop-blur-xs animate-bounce pointer-events-none border border-emerald-300">
+            <Zap className="w-3.5 h-3.5 animate-spin text-yellow-300" />
+            <span>ROBOT DOCKED & CHARGING ACTIVE [RAPID DC]</span>
           </div>
         )}
+
+        {isObstacleHazard && !isDockedAndCharging && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-red-600 text-white text-[11px] font-mono font-bold flex items-center gap-2 shadow-xl backdrop-blur-xs animate-pulse pointer-events-none">
+            <ShieldAlert className="w-3.5 h-3.5" />
+            <span>OBSTACLE PROXIMITY ALERT ({collidedObstacle?.label})</span>
+          </div>
+        )}
+      </div>
+
+      {/* Bottom Footer Tip */}
+      <div className="px-3 py-1.5 bg-[#FAF7F2] border-t border-[#C5A059]/20 flex items-center justify-between text-[10px] font-mono text-stone-500">
+        <span>Click map to set destination</span>
+        <span>Phone motion updates robot position</span>
       </div>
     </div>
   );

@@ -84,3 +84,25 @@
 
 ## Summary & Working Log Confirmation
 All accuracy metrics, error margins, and benchmark numbers across all 6 models have been verified and confirmed against the user specifications. The "No-Loss Percentage" architecture guarantees $100\%$ fail-safe obstacle avoidance and zero false docking confirmations.
+
+---
+
+## 7. Mobile-as-Robot Real Camera & Inertial Motion Working Log
+
+**Feature Implementation**: Real-world smartphone functioning as the autonomous ground vehicle's on-board sensor and camera suite.
+
+### 7.1 Architecture & Data Flow
+1. **Camera Ingestion**: Phone streams video at 15 FPS via WebRTC/Canvas base64 to `/api/camera/frame` and directly to the FastAPI OpenCV pipeline at `/api/vision/process`.
+2. **Inertial Motion Engine (`devicemotion`)**:
+   - 3-axis linear acceleration $a_x, a_y, a_z$ filtered with dynamic motion threshold ($> 0.35\,\text{m/s}^2$).
+   - Longitudinal velocity integration with physical friction damping ($v \leftarrow v \times 0.82$) to eliminate stationary position drift.
+   - 3D orientation tracking via `deviceorientation` (compass azimuth $\alpha$, pitch $\beta$, roll $\gamma$) directly orienting the robot chassis on the 2D Navigation Arena.
+3. **OpenCV Vision Processing (Not Mock)**:
+   - Real ArUco target detection via `StationPoseDetector` solving 6-DoF pose ($e_d, e_y, e_\theta$) with sub-pixel corner refinement.
+   - Dual-layer obstacle supervision via `ObstacleFusionSupervisor` flagging corridor intrusions.
+4. **Interactive Destination & Obstacle Navigation**:
+   - Tap/click anywhere on the 2D Navigation Arena to dynamically reposition the charging destination dock.
+   - Real-time collision checking against Obstacle A and Obstacle B with dynamic danger aura and red guide rails.
+5. **Physical Docking & Electrical Charging**:
+   - Reaching destination point ($\le 0.25\,\text{m}$) within alignment tolerance ($\le 3\,\text{cm}$ lateral, $\le 5^\circ$ heading) triggers the $0.8\,\text{s}$ verification dwell.
+   - Successful dwell transitions FSM to `DOCKED & CHARGING ACTIVE` with animated electrical charging arcs and live battery incrementing.

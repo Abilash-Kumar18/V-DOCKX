@@ -49,6 +49,21 @@ export default function RoboticMissionControl({ user, onLogout }) {
   const [phoneFrame, setPhoneFrame] = useState(null);
   const [isPhoneConnected, setIsPhoneConnected] = useState(false);
   const [mobileGpsPose, setMobileGpsPose] = useState(null);
+  const [mobileMotion, setMobileMotion] = useState(null);
+  const [destinationPoint, setDestinationPoint] = useState({ x: 1.0, y: 0.35 });
+  const [batteryLevel, setBatteryLevel] = useState(84);
+  const [isChargingActive, setIsChargingActive] = useState(false);
+
+  const handleDestinationChange = (newDest) => {
+    setDestinationPoint(newDest);
+    try {
+      fetch("/api/camera/frame", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ destination: newDest }),
+      }).catch(() => {});
+    } catch (_) {}
+  };
 
   // Poll for phone camera stream and real-time GPS motion from /api/camera/frame
   useEffect(() => {
@@ -63,6 +78,9 @@ export default function RoboticMissionControl({ user, onLogout }) {
             if (data.frame) {
               setPhoneFrame(data.frame);
             }
+            if (data.motion) {
+              setMobileMotion(data.motion);
+            }
             if (data.pose && typeof data.pose.x === "number" && typeof data.pose.y === "number") {
               setMobileGpsPose(data.pose);
               // Moving mobile phone moves the GPS marker on the 2D map in real time!
@@ -71,6 +89,27 @@ export default function RoboticMissionControl({ user, onLogout }) {
                 y: Number(data.pose.y.toFixed(3)),
                 theta: typeof data.pose.heading === "number" ? Math.round(data.pose.heading) : prev.theta,
               }));
+            }
+
+            // Forward real frame to FastAPI OpenCV Vision Backend
+            if (data.frame) {
+              try {
+                fetch("http://localhost:8000/api/vision/process", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    frame_b64: data.frame,
+                    robot_pose: data.pose,
+                    motion: data.motion,
+                  }),
+                })
+                  .then((r) => r.json())
+                  .then((res) => {
+                    if (res && res.state) setFsmState(res.state);
+                    if (res && res.is_docked) setIsChargingActive(true);
+                  })
+                  .catch(() => {});
+              } catch (_) {}
             }
           } else {
             setIsPhoneConnected(false);
@@ -89,13 +128,24 @@ export default function RoboticMissionControl({ user, onLogout }) {
   }, []);
 
   // Derived 6-DOF Telemetry Metrics
-  const powerStationPos = { x: 1.0, y: 0.35 };
+  const powerStationPos = destinationPoint;
   const dx = robotPose.x - powerStationPos.x;
   const dy = robotPose.y - powerStationPos.y;
   const distanceM = Math.sqrt(dx * dx + dy * dy);
   const lateralOffsetM = dx;
   const targetHeadingDeg = (Math.atan2(-dy, -dx) * 180) / Math.PI;
   const headingErrorDeg = Math.round(robotPose.theta - targetHeadingDeg);
+
+  // Battery charging simulation loop when docked
+  useEffect(() => {
+    if (isChargingActive || distanceM <= 0.25) {
+      if (!isChargingActive) setIsChargingActive(true);
+      const chargeTimer = setInterval(() => {
+        setBatteryLevel((b) => Math.min(100, b + 1));
+      }, 1000);
+      return () => clearInterval(chargeTimer);
+    }
+  }, [isChargingActive, distanceM]);
 
   // 6-DOF Simulated Rotational & Elevation Perturbations
   const pitchDeg = Number((Math.sin(Date.now() / 600) * 0.4).toFixed(2));
@@ -554,6 +604,43 @@ export default function RoboticMissionControl({ user, onLogout }) {
           </div>
         )}
 
+        {/* Dynamic Docked & Rapid DC Charging Alert Banner */}
+        {(distanceM <= 0.25 || isChargingActive) && (
+          <div className="mb-3 p-3.5 rounded-2xl bg-gradient-to-r from-emerald-950/80 via-emerald-900/60 to-emerald-950/80 border-2 border-emerald-500 shadow-[0_0_30px_rgba(16,185,129,0.3)] flex items-center justify-between text-white animate-in fade-in slide-in-from-top-2 duration-300">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center text-white shadow-[0_0_15px_rgba(16,185,129,0.9)] animate-pulse">
+                <Zap className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-sm text-emerald-400 tracking-wide uppercase">
+                    ⚡ ROBOT DOCKED & RAPID DC CHARGING ACTIVE
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-mono border border-emerald-500/40">
+                    TERMINAL LOCKED
+                  </span>
+                </div>
+                <p className="text-xs text-emerald-200/80 font-mono mt-0.5">
+                  Proximity: {(distanceM * 100).toFixed(0)}cm | Rate: 48.4V • 24.2A Rapid DC | Target Battery: 100%
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 font-mono">
+              <div className="text-right">
+                <span className="text-xs text-emerald-300/80 block uppercase">Battery State</span>
+                <span className="text-xl font-black text-white">{batteryLevel}%</span>
+              </div>
+              <div className="w-20 h-3 rounded-full bg-emerald-950 border border-emerald-500/50 p-0.5 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-300 transition-all duration-500"
+                  style={{ width: `${batteryLevel}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Viewport Renderings */}
         {activeView === "diptych" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 h-[480px] lg:h-[560px]">
@@ -571,7 +658,11 @@ export default function RoboticMissionControl({ user, onLogout }) {
               onRobotMove={(newPose) => setRobotPose(newPose)}
               isDocking={isDocking}
               mobileGpsPose={mobileGpsPose}
+              mobileMotion={mobileMotion}
               isPhoneConnected={isPhoneConnected}
+              destinationPoint={destinationPoint}
+              onDestinationChange={handleDestinationChange}
+              isCharging={distanceM <= 0.25 || isChargingActive}
             />
           </div>
         )}
@@ -597,7 +688,11 @@ export default function RoboticMissionControl({ user, onLogout }) {
               onRobotMove={(newPose) => setRobotPose(newPose)}
               isDocking={isDocking}
               mobileGpsPose={mobileGpsPose}
+              mobileMotion={mobileMotion}
               isPhoneConnected={isPhoneConnected}
+              destinationPoint={destinationPoint}
+              onDestinationChange={handleDestinationChange}
+              isCharging={distanceM <= 0.25 || isChargingActive}
             />
           </div>
         )}
@@ -677,12 +772,18 @@ export default function RoboticMissionControl({ user, onLogout }) {
               <div className="flex items-center gap-2 mt-0.5">
                 <span
                   className={`text-xs font-mono font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full ${
-                    isLateralWithinTol && isHeadingWithinTol
+                    distanceM <= 0.25 || isChargingActive || fsmState === "DOCKED"
+                      ? "bg-emerald-100 text-emerald-800 border border-emerald-400 font-black"
+                      : isLateralWithinTol && isHeadingWithinTol
                       ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
                       : "bg-[#FF3820]/10 text-[#FF3820] border border-[#FF3820]/30"
                   }`}
                 >
-                  {isLateralWithinTol && isHeadingWithinTol ? "IN TOLERANCE (±2cm)" : "CALIBRATING"}
+                  {distanceM <= 0.25 || isChargingActive || fsmState === "DOCKED"
+                    ? "LOCKED IN GATE (±2CM)"
+                    : isLateralWithinTol && isHeadingWithinTol
+                    ? "IN TOLERANCE (±2CM)"
+                    : "CALIBRATING"}
                 </span>
               </div>
               <span className="text-[10px] font-mono text-stone-500 mt-1 block">
@@ -693,12 +794,16 @@ export default function RoboticMissionControl({ user, onLogout }) {
 
           {/* Card 4: FSM Operational Phase */}
           <div className="flex items-center gap-3.5 p-2 rounded-2xl bg-white/60 border border-[#C5A059]/25">
-            <div className="w-10 h-10 rounded-full bg-[#FAF7F2] border border-[#C5A059]/40 flex items-center justify-center text-[#8C6D31] shadow-xs">
-              <CheckCircle2
-                className={`w-5 h-5 ${
-                  fsmState === "DOCKED" ? "text-emerald-600 animate-pulse" : "text-[#C5A059]"
-                }`}
-              />
+            <div className={`w-10 h-10 rounded-full border flex items-center justify-center shadow-xs ${
+              distanceM <= 0.25 || isChargingActive || fsmState === "DOCKED"
+                ? "bg-emerald-100 border-emerald-400 text-emerald-700"
+                : "bg-[#FAF7F2] border-[#C5A059]/40 text-[#8C6D31]"
+            }`}>
+              {distanceM <= 0.25 || isChargingActive || fsmState === "DOCKED" ? (
+                <Zap className="w-5 h-5 text-emerald-600 animate-bounce" />
+              ) : (
+                <CheckCircle2 className="w-5 h-5 text-[#C5A059]" />
+              )}
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-[10px] font-mono font-bold text-[#8C6D31] uppercase tracking-wider">
@@ -706,20 +811,33 @@ export default function RoboticMissionControl({ user, onLogout }) {
               </div>
               <div className="flex items-center gap-2 mt-0.5">
                 <span className="text-sm font-sans font-black tracking-wide text-[#1A1715]">
-                  {isEmergencyStopped
-                    ? "E-STOP TRIPPED"
-                    : controlMode === "manual"
-                    ? "MANUAL PILOT"
-                    : fsmState === "DOCKED"
-                    ? "DOCKED CONFIRMED"
-                    : fsmState === "FINE_ALIGN"
-                    ? "FINE ALIGNMENT"
-                    : "APPROACH PHASE"}
+                  {isEmergencyStopped ? (
+                    "E-STOP TRIPPED"
+                  ) : distanceM <= 0.25 || isChargingActive || fsmState === "DOCKED" ? (
+                    <span className="text-emerald-700 flex items-center gap-1.5">
+                      <span>CHARGING ACTIVE ⚡</span>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        {batteryLevel}%
+                      </span>
+                    </span>
+                  ) : controlMode === "manual" ? (
+                    "MANUAL PILOT"
+                  ) : fsmState === "OBSTACLE_STOP" ? (
+                    <span className="text-red-600">OBSTACLE STOP</span>
+                  ) : fsmState === "FINE_ALIGN" ? (
+                    "FINE ALIGNMENT"
+                  ) : (
+                    "APPROACH PHASE"
+                  )}
                 </span>
-                <span className="w-2 h-2 rounded-full bg-[#FF3820] animate-pulse" />
+                <span className={`w-2 h-2 rounded-full animate-pulse ${
+                  distanceM <= 0.25 || isChargingActive ? "bg-emerald-500" : "bg-[#FF3820]"
+                }`} />
               </div>
               <span className="text-[10px] font-mono text-stone-500 mt-0.5 block">
-                DWELL: {dwellTime.toFixed(1)}s / 1.0s
+                {distanceM <= 0.25 || isChargingActive
+                  ? `CHARGING DOCK DWELL: COMPLETE`
+                  : `DWELL: ${dwellTime.toFixed(1)}s / 1.0s`}
               </span>
             </div>
           </div>

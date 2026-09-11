@@ -73,16 +73,18 @@ export default function RoboticCameraHUD({
         const res = await fetch("/api/camera/frame");
         if (res.ok && mounted) {
           const data = await res.json();
-          if (data.isFresh && data.frame) {
-            setPhoneFrame(data.frame);
+          if (data.isFresh) {
             setIsPhoneConnected(true);
-            setIsCameraActive(true);
-            setCameraError(null);
+            if (data.frame) {
+              setPhoneFrame(data.frame);
+              setIsCameraActive(true);
+              setCameraError(null);
 
-            if (!phoneImgRef.current) {
-              phoneImgRef.current = new Image();
+              if (!phoneImgRef.current) {
+                phoneImgRef.current = new Image();
+              }
+              phoneImgRef.current.src = data.frame;
             }
-            phoneImgRef.current.src = data.frame;
           } else {
             setIsPhoneConnected(false);
           }
@@ -593,30 +595,33 @@ export default function RoboticCameraHUD({
 
         ctx.fillStyle = "#1A1715";
         ctx.font = "bold 11px system-ui, -apple-system, sans-serif";
+        const isChargingDocked = distanceM <= 0.25;
         ctx.fillText(
           `${
-            effectiveIsPhoneConnected
-              ? "PHONE CAMERA [LIVE GPS SYNC]"
+            isChargingDocked
+              ? "⚡ ROBOT DOCKED & CHARGING ACTIVE"
+              : effectiveIsPhoneConnected
+              ? "PHONE ROBOT [LIVE MOTION & CV]"
               : isUsingStreamUrl
               ? "IP CAMERA STREAM"
               : isCameraActive
-              ? "WEBCAM [LIVE]"
+              ? "USB WEBCAM [LIVE CV & AR]"
               : "SIMULATED ENVIRONMENT"
           }`,
           24,
           28
         );
-        ctx.fillStyle = isCriticalProximity ? "#DC2626" : "#78716C";
+        ctx.fillStyle = isChargingDocked ? "#059669" : isCriticalProximity ? "#DC2626" : "#78716C";
         ctx.font = "bold 10px monospace";
         ctx.fillText(
-          `Dist: ${distanceM.toFixed(2)}m | Off: ${(lateralOffsetM * 100).toFixed(1)}cm | Hdg: ${headingErrorDeg}°`,
+          `Dist: ${distanceM.toFixed(2)}m | Off: ${(lateralOffsetM * 100).toFixed(1)}cm | Hdg: ${headingErrorDeg}° ${isChargingDocked ? "[CHARGING]" : ""}`,
           24,
           44
         );
-        if (effectiveIsPhoneConnected && mobileGpsPose?.lat) {
+        if (effectiveIsPhoneConnected) {
           ctx.fillStyle = "#8C6D31";
           ctx.font = "8.5px monospace";
-          ctx.fillText(`GPS: ${mobileGpsPose.lat.toFixed(4)}°, ${mobileGpsPose.lng.toFixed(4)}°`, 24, 58);
+          ctx.fillText(`MOTION: ACTIVE SENSOR SYNC | CV READY`, 24, 58);
         }
       }
 

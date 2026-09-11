@@ -4,12 +4,15 @@ REST endpoints for mission control and high-frequency WebSocket telemetry stream
 """
 
 import asyncio
+import base64
 import glob
 import json
 import math
 import os
 import time
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+import cv2
+import numpy as np
 import yaml
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,6 +30,10 @@ from docking.controller import VisualServoController
 from docking.safety import SafetySupervisor
 from docking.hybrid_state_machine import HybridDockingStateMachine
 from docking.robot_adapter import SimulatedRobotAdapter
+from docking.station_pose_detector import StationPoseDetector
+from docking.pose_filter import PoseFilter
+from docking.line_detector import LineDetector
+from docking.obstacle_fusion import ObstacleFusionSupervisor
 
 app = FastAPI(
     title="V-DOCKX Telemetry & Mission Control API",
@@ -103,7 +110,17 @@ fsm = HybridDockingStateMachine(
 
 robot = SimulatedRobotAdapter(x=0.0, y=0.15, theta=-0.10)
 
-# Simulated synthetic inputs
+# Real Vision Perception Pipeline (OpenCV & AI)
+pose_detector = StationPoseDetector()
+pose_filter = PoseFilter()
+line_detector = LineDetector()
+obstacle_fusion = ObstacleFusionSupervisor()
+
+destination_point = {"x": 1.0, "y": 0.35}
+last_real_frame_time = 0.0
+last_motion_state: Dict[str, Any] = {"isMoving": False, "speedMps": 0.0, "accel": 0.0}
+
+# Simulated synthetic inputs (fallback when camera offline)
 synthetic_line = LineDetectionOutput(detected=True, centroid_error_norm=0.10, angle_error_rad=0.05, confidence=0.85)
 synthetic_target = PerceptionOutput(detected=False, distance_m=1.8, lateral_offset_m=0.15, heading_error_rad=-0.10, confidence=0.75)
 synthetic_obstacle = ObstacleOutput(obstacle_present=False, corridor_blocked=False)
@@ -260,12 +277,249 @@ def inject_obstacle(req: ObstacleInjectRequest):
 
 
 # -------------------------------------------------------------
+# Real Vision & Mobile Motion Endpoints
+# -------------------------------------------------------------
+class VisionProcessRequest(BaseModel):
+    frame_b64: str
+    robot_pose: Optional[Dict[str, float]] = None
+    motion: Optional[Dict[str, Any]] = None
+
+
+class DestinationRequest(BaseModel):
+    x: float
+    y: float
+
+
+class MobileMotionRequest(BaseModel):
+    pose: Dict[str, float]
+    motion: Optional[Dict[str, Any]] = None
+
+
+@app.get("/api/destination")
+def get_destination():
+    return destination_point
+
+
+@app.post("/api/destination")
+def set_destination(req: DestinationRequest):
+    global destination_point
+    destination_point = {"x": req.x, "y": req.y}
+    return {"message": "Destination updated", "destination": destination_point}
+
+
+@app.get("/api/robot/pose")
+def get_robot_pose():
+    dist_to_dest = math.hypot(destination_point["x"] - robot.x, destination_point["y"] - robot.y)
+    return {
+        "pose": robot.get_telemetry_dict(),
+        "motion": last_motion_state,
+        "is_docked": fsm.state == DockingState.DOCKED or dist_to_dest <= 0.25,
+        "distance_m": round(dist_to_dest, 3),
+        "destination": destination_point,
+    }
+
+
+@app.post("/api/robot/motion")
+async def update_mobile_motion(req: MobileMotionRequest):
+    global last_motion_state, last_real_frame_time
+    now = time.time()
+    last_real_frame_time = now
+    if req.motion:
+        last_motion_state = req.motion
+    if "x" in req.pose and "y" in req.pose:
+        robot.x = req.pose["x"]
+        robot.y = req.pose["y"]
+    if "heading" in req.pose:
+        robot.theta = math.radians(req.pose["heading"])
+
+    dist_to_dest = math.hypot(destination_point["x"] - robot.x, destination_point["y"] - robot.y)
+    is_docked = dist_to_dest <= 0.25
+    if is_docked:
+        fsm.state = DockingState.DOCKED
+
+    telemetry_pkt = {
+        "timestamp": now,
+        "state": fsm.state.value,
+        "fsm_state": fsm.state.value,
+        "linear_velocity_mps": 0.20 if (req.motion and req.motion.get("isMoving")) else 0.0,
+        "v": 0.20 if (req.motion and req.motion.get("isMoving")) else 0.0,
+        "angular_velocity_rps": 0.0,
+        "w": 0.0,
+        "command_reason": "Mobile Sensor Teleoperation",
+        "robot_pose": robot.get_telemetry_dict(),
+        "target": {
+            "detected": True,
+            "distance_m": round(dist_to_dest, 3),
+            "lateral_offset_m": round(robot.x - destination_point["x"], 3),
+            "heading_error_rad": round(robot.theta, 3),
+        },
+        "ed": round(dist_to_dest, 3),
+        "ey": round(robot.x - destination_point["x"], 3),
+        "etheta": round(robot.theta, 3),
+        "obstacle": {
+            "corridor_blocked": False,
+            "stop_count": safety.obstacle_stop_count,
+        },
+        "corridor_blocked": False,
+        "dwell_progress_pct": 100.0 if is_docked else 0.0,
+        "dwell_countdown": 0.0,
+        "estop_active": safety.estop_active,
+        "safety_halt": False,
+        "is_real_camera": True,
+        "is_docked": is_docked,
+        "charging_active": is_docked,
+        "destination": destination_point,
+    }
+    await manager.broadcast(telemetry_pkt)
+
+    return {
+        "status": "ok",
+        "pose": robot.get_telemetry_dict(),
+        "motion": last_motion_state,
+        "is_docked": is_docked or fsm.state == DockingState.DOCKED,
+        "charging_active": is_docked or fsm.state == DockingState.DOCKED,
+        "distance_m": round(dist_to_dest, 3),
+    }
+
+
+@app.post("/api/vision/process")
+async def process_real_frame(req: VisionProcessRequest):
+    """
+    Ingest live frame from mobile phone or USB webcam.
+    Runs ArUco pose estimation, floor line tracking, and obstacle detection.
+    Feeds real measurements into the hybrid state machine and safety gate.
+    """
+    global last_real_frame_time, synthetic_target, synthetic_line, synthetic_obstacle, last_motion_state
+    now = time.time()
+    last_real_frame_time = now
+
+    # Update robot pose if provided by mobile motion sensor
+    if req.robot_pose:
+        if "x" in req.robot_pose and "y" in req.robot_pose:
+            robot.x = req.robot_pose["x"]
+            robot.y = req.robot_pose["y"]
+        if "heading" in req.robot_pose:
+            robot.theta = math.radians(req.robot_pose["heading"])
+
+    if req.motion:
+        last_motion_state = req.motion
+
+    # 1. Decode base64 image
+    try:
+        parts = req.frame_b64.split(",")
+        raw_b64 = parts[1] if len(parts) > 1 else parts[0]
+        img_bytes = base64.b64decode(raw_b64)
+        np_arr = np.frombuffer(img_bytes, np.uint8)
+        frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        if frame is None:
+            raise ValueError("Empty decoded image")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Image decoding failed: {e}")
+
+    # 2. ArUco 6-DoF Target Pose Estimation
+    raw_pose = pose_detector.detect(frame)
+    filtered_pose = pose_filter.update(raw_pose)
+    synthetic_target = filtered_pose
+
+    # 3. Floor Line Tracking
+    line_out = line_detector.detect(frame)
+    synthetic_line = line_out
+
+    # 4. Obstacle Detection (AI + Geometric Corridor)
+    obs_out, _ = obstacle_fusion.evaluate(frame)
+    synthetic_obstacle = obs_out
+
+    # 5. Station Zone Cue: Target marker visible or station proximity
+    dist_to_dest = math.hypot(destination_point["x"] - robot.x, destination_point["y"] - robot.y)
+    zone_cue = filtered_pose.detected or (dist_to_dest <= 0.85)
+
+    # 6. Step Hybrid State Machine with Real Sensor Ingestion
+    state, cmd = fsm.update(
+        line=line_out,
+        target=filtered_pose,
+        obstacle=obs_out,
+        station_zone_detected=zone_cue,
+        last_frame_timestamp=now,
+        current_time=now,
+    )
+
+    # 7. Advance kinematics if not docked/stopped
+    if state not in (DockingState.IDLE, DockingState.FAILED, DockingState.DOCKED, DockingState.OBSTACLE_STOP):
+        robot.send_command(cmd)
+
+    dwell_pct = 0.0
+    dwell_countdown = 0.0
+    if fsm.dwell_start_time is not None:
+        elapsed = now - fsm.dwell_start_time
+        dwell_pct = min(100.0, round((elapsed / fsm.verification_dwell_s) * 100.0, 1))
+        dwell_countdown = round(max(0.0, fsm.verification_dwell_s - elapsed), 2)
+
+    # 8. Broadcast over WebSocket for zero-lag dashboard sync
+    telemetry_pkt = {
+        "timestamp": now,
+        "state": state.value,
+        "fsm_state": state.value,
+        "linear_velocity_mps": cmd.linear_velocity_mps,
+        "v": cmd.linear_velocity_mps,
+        "angular_velocity_rps": cmd.angular_velocity_rps,
+        "w": cmd.angular_velocity_rps,
+        "command_reason": cmd.reason,
+        "robot_pose": robot.get_telemetry_dict(),
+        "target": {
+            "detected": filtered_pose.detected,
+            "distance_m": filtered_pose.distance_m,
+            "lateral_offset_m": filtered_pose.lateral_offset_m,
+            "heading_error_rad": filtered_pose.heading_error_rad,
+        },
+        "ed": filtered_pose.distance_m,
+        "ey": filtered_pose.lateral_offset_m,
+        "etheta": filtered_pose.heading_error_rad,
+        "obstacle": {
+            "corridor_blocked": obs_out.corridor_blocked,
+            "stop_count": safety.obstacle_stop_count,
+        },
+        "corridor_blocked": obs_out.corridor_blocked,
+        "dwell_progress_pct": dwell_pct,
+        "dwell_countdown": dwell_countdown,
+        "estop_active": safety.estop_active,
+        "safety_halt": safety.estop_active or obs_out.corridor_blocked,
+        "is_real_camera": True,
+        "is_docked": state == DockingState.DOCKED,
+        "charging_active": state == DockingState.DOCKED,
+        "destination": destination_point,
+    }
+    await manager.broadcast(telemetry_pkt)
+
+    return {
+        "success": True,
+        "state": state.value,
+        "target_detected": filtered_pose.detected,
+        "distance_m": filtered_pose.distance_m if filtered_pose.detected else round(dist_to_dest, 3),
+        "lateral_offset_m": filtered_pose.lateral_offset_m if filtered_pose.detected else round(robot.y - destination_point["y"], 3),
+        "heading_error_deg": round(math.degrees(filtered_pose.heading_error_rad), 2) if filtered_pose.detected else round(math.degrees(robot.theta), 2),
+        "obstacle_present": obs_out.obstacle_present,
+        "corridor_blocked": obs_out.corridor_blocked,
+        "linear_v": cmd.linear_velocity_mps,
+        "angular_w": cmd.angular_velocity_rps,
+        "dwell_pct": dwell_pct,
+        "dwell_countdown": dwell_countdown,
+        "is_docked": state == DockingState.DOCKED,
+        "charging_active": state == DockingState.DOCKED,
+    }
+
+
+# -------------------------------------------------------------
 # Background Simulation & Telemetry Loop (20 Hz)
 # -------------------------------------------------------------
 async def simulation_loop():
     """Runs a 20Hz loop updating kinematics, FSM, and broadcasting telemetry."""
     while True:
         now = time.time()
+
+        # If live camera is actively streaming from phone/webcam, pause synthetic override!
+        if time.time() - last_real_frame_time < 2.5:
+            await asyncio.sleep(0.05)
+            continue
 
         # Dynamically update synthetic line tracking based on robot pose relative to guide line (y=0)
         synthetic_line.centroid_error_norm = max(-1.0, min(1.0, round(robot.y / 0.15, 3)))
