@@ -254,7 +254,7 @@ export default function DockingMap2D({
       // Minimalist Dock Text
       ctx.fillStyle = "#64748B";
       ctx.font = "bold 8px monospace";
-      ctx.fillText("MICRO DOCK [1.0m, 0.35m]", psX - 44, psY - 7);
+      ctx.fillText("DOCK [1.0m, 0.30m]", psX - 44, psY - 7);
 
       if (isStationCharged) {
         ctx.fillStyle = "#10B981";
@@ -522,7 +522,7 @@ export default function DockingMap2D({
         // Action / Decision
         ctx.fillStyle = isFullyBlocked ? "#EF4444" : "#38BDF8";
         ctx.fillText(
-          isFullyBlocked ? "⛔ BRAKE (NO DETOUR)" : `REROUTE ${chosenReroute} ➡️`,
+          isFullyBlocked ? "⛔ BRAKE (NO PATH)" : `REROUTE ${chosenReroute} ➡️`,
           badgeX + 188,
           badgeY + 16
         );
@@ -620,7 +620,7 @@ export default function DockingMap2D({
       <div className="absolute top-4 left-4 z-10 flex items-center gap-2">
         <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/90 backdrop-blur-md border border-[#C5A059]/40 text-[10px] font-mono font-bold text-[#1A1715] shadow-xs">
           <MapPin className="w-3 h-3 text-[#FF3820]" />
-          <span>ARENA 2.0m x 2.0m</span>
+          <span>MAP 2.0m x 2.0m</span>
         </div>
 
         {isPhoneConnected && (
@@ -633,7 +633,7 @@ export default function DockingMap2D({
         {isCorridorBlocked && (
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-600 text-white text-[10px] font-mono font-bold shadow-md animate-pulse">
             <AlertTriangle className="w-3 h-3 text-white" />
-            <span>HAZARD [{minObsDist.toFixed(2)}m]</span>
+            <span>OBSTACLE [{minObsDist.toFixed(2)}m]</span>
           </div>
         )}
       </div>
@@ -647,7 +647,7 @@ export default function DockingMap2D({
 
         <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/90 backdrop-blur-md border border-[#C5A059]/40 shadow-xs">
           <Navigation className="w-3.5 h-3.5 text-[#FF3820]" />
-          <span>DOCK DIST: {distToDock.toFixed(2)}m</span>
+          <span>DOCK DISTANCE: {distToDock.toFixed(2)}m</span>
         </div>
 
         <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/90 backdrop-blur-md border border-[#C5A059]/40 shadow-xs">
