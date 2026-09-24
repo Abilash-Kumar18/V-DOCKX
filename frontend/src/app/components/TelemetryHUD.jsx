@@ -52,10 +52,10 @@ export default function TelemetryHUD({ user, onLogout }) {
 
   // Telemetry Log Feed
   const [logs, setLogs] = useState([
-    { ts: "20:25:01.120", state: "APPROACH", msg: "AprilTag ID 0 detected at range 0.72m" },
+    { ts: "20:25:01.120", state: "APPROACH", msg: "AprilTag ID 0 detected at range" },
     { ts: "20:25:02.450", state: "APPROACH", msg: "Corridor clear: depth scan 1.84m safe" },
     { ts: "20:25:03.910", state: "FINE_ALIGN", msg: "Switched to closed-loop visual servoing" },
-    { ts: "20:25:05.105", state: "FINE_ALIGN", msg: "Lateral offset within +/- 2.5cm target gate" },
+    { ts: "20:25:05.105", state: "FINE_ALIGN", msg: "Lateral change within +/- 2.5cm target gate" },
   ]);
 
   const canvasRef = useRef(null);
@@ -82,7 +82,7 @@ export default function TelemetryHUD({ user, onLogout }) {
             {
               ts: new Date().toISOString().split("T")[1].slice(0, 12),
               state: "SYSTEM",
-              msg: "Connected to V-DOCKX FastAPI backend telemetry stream (20 Hz).",
+              msg: "Connected to V-DOCKX FastAPI backend telemetry stream",
             },
             ...prev.slice(0, 20),
           ]);
