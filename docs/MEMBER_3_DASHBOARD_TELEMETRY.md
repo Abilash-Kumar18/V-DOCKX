@@ -128,20 +128,7 @@ The Web Dashboard serves as the primary visual display for judges, operators, an
   4. Obstacle removed $\rightarrow$ dwell timer $\rightarrow$ resume approach.
   5. Final verification dwell and `DOCKED` declaration.
 
-### Phase 6: Presentation Deck & Demo Rehearsal (Hours 22 – 24)
-- [ ] Build presentation slides (leveraging `vdockx.pptx`):
-  - Architecture diagram (Perception $\rightarrow$ State Machine $\rightarrow$ Safety Supervisor $\rightarrow$ HUD).
-  - Quantitative evaluation metrics table.
-  - Video demo embedded as offline backup.
-- [ ] Rehearse live demonstration flow.
-- [ ] Commit and push changes:
-  ```bash
-  git add .
-  git commit -m "Complete frontend dashboard HUD, telemetry logger, replay and evaluation harness"
-  git push origin feature/dashboard-telemetry
-  ```
 
----
 
 ## 4. Acceptance Criteria & Definition of Done
 1. **Live Rendering**: Dashboard renders stream and telemetry smoothly at $\ge 20\text{ FPS}$ with $< 50\text{ ms}$ display latency.
